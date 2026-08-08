@@ -1,0 +1,2122 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Data Logger - Análise de Pressão</title>
+
+    <!-- CSP ajustada para funcionar localmente e com CDNs -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; 
+                   script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; 
+                   style-src 'self' 'unsafe-inline'; 
+                   img-src 'self' data:; 
+                   connect-src 'self';">
+
+    <!-- Scripts sem integrity (para não bloquear) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <style>
+        /* ===== SEU CSS ORIGINAL (NENHUMA ALTERAÇÃO AQUI) ===== */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f4f8;
+            padding: 15px;
+        }
+
+        .container {
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+            border: 1px solid #e0e8f0;
+        }
+
+        /* Cabeçalho */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .title-section {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .title-text h1 {
+            color: #2c6e9e;
+            margin: 0 0 5px 0;
+            font-size: clamp(1.2rem, 5vw, 1.8rem);
+        }
+
+        .title-text .subtitle {
+            color: #7a8e9e;
+            margin: 0;
+            font-size: clamp(0.7rem, 3vw, 0.85rem);
+        }
+
+        .logo-area {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 10px;
+        }
+
+        .logo-preview {
+            width: clamp(100px, 20vw, 130px);
+            height: clamp(70px, 15vw, 90px);
+            background-color: transparent;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .logo-preview img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .logo-placeholder {
+            text-align: center;
+            color: #a0b0c0;
+            font-size: 11px;
+            padding: 10px;
+        }
+
+        .btn-logo {
+            background-color: #e8f0f8;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 11px;
+            cursor: pointer;
+            color: #2c6e9e;
+        }
+
+        /* Responsáveis */
+        .responsaveis-section {
+            background-color: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border: 1px solid #e2e8f0;
+            overflow-x: auto;
+        }
+
+        .responsaveis-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .responsaveis-title {
+            color: #2c6e9e;
+            font-size: 1.1rem;
+        }
+
+        .btn-add-responsavel {
+            background-color: #6caddc;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .responsaveis-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .responsavel-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 15px;
+            position: relative;
+        }
+
+        .responsavel-fields-header {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .field-header {
+            color: #2c6e9e;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .responsavel-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+        }
+
+        .responsavel-field input {
+            background-color: #ffffff;
+            border: 1px solid #dce4ec;
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: #2c3e4e;
+            font-size: 13px;
+            width: 100%;
+        }
+
+        .btn-remove-responsavel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #fef0f0;
+            border: 1px solid #f0c0c0;
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 11px;
+            cursor: pointer;
+            color: #c07070;
+        }
+
+        /* Formulário */
+        .form-section {
+            background-color: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .form-title {
+            color: #2c6e9e;
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group label {
+            color: #5a6e7e;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .form-group input {
+            background-color: #ffffff;
+            border: 1px solid #dce4ec;
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: #2c3e4e;
+            font-size: 14px;
+            width: 100%;
+        }
+
+        .form-group textarea {
+            background-color: #ffffff;
+            border: 1px solid #dce4ec;
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: #2c3e4e;
+            font-size: 14px;
+            width: 100%;
+            resize: vertical;
+            font-family: inherit;
+        }
+
+        .form-group-small {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group-small label {
+            color: #5a6e7e;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .form-group-small input {
+            background-color: #ffffff;
+            border: 1px solid #dce4ec;
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: #2c3e4e;
+            font-size: 14px;
+            width: 100%;
+        }
+
+        .pressao-info {
+            font-size: 11px;
+            color: #7a8e9e;
+            margin-top: 4px;
+        }
+
+        .form-group-small input.input-invalid {
+            border-color: #d07070;
+            background-color: #fff8f8;
+        }
+
+
+        .classification-group {
+            background-color: #f1f5f9;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 10px;
+            overflow-x: auto;
+        }
+
+        .classification-title {
+            color: #2c6e9e;
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        .radio-option input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #6caddc;
+        }
+
+        .nivel-buttons {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .nivel-btn {
+            background-color: #ffffff;
+            border: 1px solid #dce4ec;
+            border-radius: 8px;
+            padding: 8px 16px;
+            cursor: pointer;
+            color: #5a6e7e;
+            font-weight: bold;
+        }
+
+        .nivel-btn.selected {
+            background-color: #6caddc;
+            color: white;
+            border-color: #6caddc;
+        }
+
+        .pressao-trabalho-destaque {
+            background-color: #eef3fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 10px;
+            text-align: center;
+            border: 1px solid #cbd5e1;
+        }
+
+        .pressao-trabalho-destaque .label {
+            color: #2c6e9e;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .pressao-trabalho-destaque .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c6e9e;
+            margin-top: 5px;
+        }
+
+        .upload-area {
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 30px 20px;
+            text-align: center;
+            margin-bottom: 30px;
+            background-color: #f8fafc;
+            transition: all 0.2s ease;
+        }
+
+        .upload-area:hover {
+            border-color: #6caddc;
+            background-color: #f0f6fc;
+        }
+
+        .upload-area input {
+            display: none;
+        }
+
+        .upload-label {
+            cursor: pointer;
+            background-color: #6caddc;
+            color: white;
+            padding: 12px 28px;
+            border-radius: 8px;
+            display: inline-block;
+            font-weight: bold;
+            border: none;
+            transition: background-color 0.2s ease;
+        }
+
+        .upload-label:hover {
+            background-color: #5a9bca;
+        }
+
+        .file-info {
+            margin-top: 15px;
+            color: #7a8e9e;
+            font-size: 14px;
+            word-break: break-all;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background-color: #6caddc;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #5a9bca;
+        }
+
+        .btn-secondary {
+            background-color: #e8f0f8;
+            color: #2c6e9e;
+            border: 1px solid #cbd5e1;
+        }
+
+        .btn-secondary:hover {
+            background-color: #dce4ec;
+        }
+
+        .report-header {
+            background-color: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #e2e8f0;
+            display: none;
+            position: relative;
+        }
+
+        .report-logo {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 70px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .report-logo img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .report-header h3 {
+            color: #2c6e9e;
+            margin: 0 0 15px 0;
+            font-size: 1rem;
+            padding-right: 80px;
+        }
+
+        .report-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            padding-right: 80px;
+        }
+
+        .report-item {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .report-item .label {
+            color: #7a8e9e;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .report-item .value {
+            color: #2c6e9e;
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 5px;
+            word-break: break-word;
+        }
+
+        .responsaveis-report {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .responsaveis-report h4 {
+            color: #2c6e9e;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+        }
+
+        .responsaveis-report-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .responsavel-report-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .responsavel-report-card .nome {
+            font-weight: bold;
+            color: #2c6e9e;
+        }
+
+        .responsavel-report-card .cargo {
+            font-size: 11px;
+            color: #7a8e9e;
+        }
+
+        .responsavel-report-card .registro {
+            font-size: 10px;
+            color: #a0b0c0;
+        }
+
+        .chart-container {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #ffffff;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            display: none;
+            overflow-x: auto;
+        }
+
+        .chart-container canvas {
+            max-height: 450px;
+            width: 100%;
+        }
+
+        .chart-legend {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+            padding: 10px 15px;
+            background-color: #f8fafc;
+            border-radius: 8px;
+            font-size: 12px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .legend-period {
+            color: #2c6e9e;
+            font-weight: bold;
+        }
+
+        .legend-peak {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-peak-color {
+            width: 16px;
+            height: 16px;
+            background-color: #c07070;
+            border-radius: 50%;
+        }
+
+        .legend-stable {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-stable-color {
+            width: 16px;
+            height: 16px;
+            background-color: #2c9e6e;
+            border-radius: 50%;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8fafc;
+            border-radius: 12px;
+        }
+
+        .stat-box {
+            text-align: center;
+            flex: 1;
+            min-width: 80px;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c6e9e;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: #7a8e9e;
+        }
+
+        .error {
+            color: #d07070;
+            background-color: #fef0f0;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+            border: 1px solid #f0c0c0;
+        }
+
+        .picos-table {
+            width: 100%;
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+
+        .picos-table h4 {
+            color: #2c6e9e;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .picos-table h4 .badge {
+            background-color: #6caddc;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+
+        .picos-table table {
+            width: 100%;
+            min-width: 650px;
+            border-collapse: collapse;
+            background-color: #ffffff;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .picos-table th,
+        .picos-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .picos-table th {
+            background-color: #f1f5f9;
+            color: #2c6e9e;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .picos-table td {
+            color: #2c3e4e;
+            font-size: 13px;
+        }
+
+        .picos-table td.alto {
+            color: #c07070;
+            font-weight: bold;
+        }
+
+        .diferenca-positiva {
+            color: #c07070;
+            font-weight: bold;
+        }
+
+        .diferenca-negativa {
+            color: #2c9e6e;
+            font-weight: bold;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+            text-align: center;
+            min-width: 90px;
+        }
+
+        .status-alto-10 {
+            background-color: #fff0e0;
+            color: #c07000;
+        }
+
+        .status-alto-20 {
+            background-color: #ffe0c0;
+            color: #c07000;
+        }
+
+        .status-alto-30 {
+            background-color: #ffd0a0;
+            color: #c07000;
+        }
+
+        .status-alto-40 {
+            background-color: #ffc080;
+            color: #a05000;
+        }
+
+        .status-alto-50 {
+            background-color: #ffb060;
+            color: #a05000;
+        }
+
+        .status-alto-60 {
+            background-color: #ffa040;
+            color: #a05000;
+        }
+
+        .status-alto-70 {
+            background-color: #ff9020;
+            color: #a05000;
+        }
+
+        .status-alto-80 {
+            background-color: #ff8000;
+            color: #ffffff;
+        }
+
+        .status-alto-90 {
+            background-color: #e07000;
+            color: #ffffff;
+        }
+
+        .status-alto-100 {
+            background-color: #c06000;
+            color: #ffffff;
+        }
+
+        .status-baixo-10 {
+            background-color: #e8f5e9;
+            color: #2c6e2c;
+        }
+
+        .status-baixo-20 {
+            background-color: #d0ecd0;
+            color: #2c6e2c;
+        }
+
+        .status-baixo-30 {
+            background-color: #b8e3b8;
+            color: #2c6e2c;
+        }
+
+        .status-baixo-40 {
+            background-color: #a0daa0;
+            color: #1a5a1a;
+        }
+
+        .status-baixo-50 {
+            background-color: #88d188;
+            color: #1a5a1a;
+        }
+
+        .status-baixo-60 {
+            background-color: #70c870;
+            color: #1a5a1a;
+        }
+
+        .status-baixo-70 {
+            background-color: #58bf58;
+            color: #ffffff;
+        }
+
+        .status-baixo-80 {
+            background-color: #40b640;
+            color: #ffffff;
+        }
+
+        .status-baixo-90 {
+            background-color: #28ad28;
+            color: #ffffff;
+        }
+
+        .status-baixo-100 {
+            background-color: #10a410;
+            color: #ffffff;
+        }
+
+        .status-normal {
+            background-color: #6caddc;
+            color: #ffffff;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .footer-text {
+            color: #a0b0c0;
+            font-size: 11px;
+        }
+
+        .footer-logo {
+            width: 50px;
+            height: 35px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .footer-logo img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .value.classification.A {
+            background-color: #c8e6df;
+            color: #1a6e4a;
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+
+        .value.classification.B {
+            background-color: #dce8f2;
+            color: #2c6e9e;
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+
+        .value.classification.B-AR {
+            background-color: #f0e6d0;
+            color: #8a6e2e;
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+
+        .value.classification.C {
+            background-color: #f0d8d8;
+            color: #9e4a4a;
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+
+        /* ===== IMPRESSÃO ===== */
+        @media print {
+            @page {
+                size: A4;
+                margin: 1.2cm;
+            }
+
+            body {
+                background-color: white;
+                padding: 0;
+                margin: 0;
+            }
+
+            .container {
+                max-width: 100%;
+                padding: 0;
+                margin: 0;
+                box-shadow: none;
+                border: none;
+                background-color: white;
+            }
+
+            .upload-area,
+            .action-buttons,
+            .btn-logo,
+            .logo-area .btn-logo,
+            .btn-add-responsavel,
+            .btn-remove-responsavel,
+            .responsaveis-section .btn-add-responsavel {
+                display: none !important;
+            }
+
+            .logo-area {
+                display: none !important;
+            }
+
+            .header {
+                border-bottom: 2px solid #2c6e9e;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+            }
+
+            .title-text h1 {
+                font-size: 18pt;
+                color: #2c6e9e;
+            }
+
+            .title-text .subtitle {
+                font-size: 10pt;
+            }
+
+            .report-header {
+                display: block !important;
+                margin-bottom: 15px;
+                padding: 12px;
+                break-inside: avoid;
+                page-break-inside: avoid;
+                border: 1px solid #ccc;
+            }
+
+            .report-logo {
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                width: 55px;
+                height: 40px;
+            }
+
+            .report-header h3 {
+                font-size: 12pt;
+                margin-bottom: 10px;
+                padding-right: 65px;
+            }
+
+            .report-info {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+                padding-right: 65px;
+            }
+
+            .report-item {
+                padding: 6px 8px;
+            }
+
+            .report-item .label {
+                font-size: 7pt;
+            }
+
+            .report-item .value {
+                font-size: 9pt;
+            }
+
+            .responsaveis-report {
+                margin-top: 12px;
+                padding-top: 8px;
+                break-inside: avoid;
+            }
+
+            .responsaveis-report h4 {
+                font-size: 9pt;
+                margin-bottom: 8px;
+            }
+
+            .responsaveis-report-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+
+            .responsavel-report-card {
+                padding: 5px 8px;
+            }
+
+            .responsavel-report-card .nome {
+                font-size: 9pt;
+            }
+
+            .responsavel-report-card .cargo,
+            .responsavel-report-card .registro {
+                font-size: 7pt;
+            }
+
+            .chart-container {
+                display: block !important;
+                margin: 15px 0;
+                padding: 10px;
+                break-inside: avoid;
+                page-break-inside: avoid;
+                border: 1px solid #ccc;
+            }
+
+            .chart-container canvas {
+                max-height: 220px !important;
+                width: 100% !important;
+            }
+
+            .chart-legend {
+                display: flex !important;
+                padding: 5px 10px;
+                font-size: 8pt;
+                margin-top: 5px;
+                border: 1px solid #eee;
+            }
+
+            .stats-row {
+                display: flex !important;
+                margin: 15px 0;
+                padding: 10px;
+                break-inside: avoid;
+                page-break-inside: avoid;
+                border: 1px solid #ccc;
+            }
+
+            .stat-box {
+                min-width: 60px;
+            }
+
+            .stat-value {
+                font-size: 11pt;
+            }
+
+            .stat-label {
+                font-size: 7pt;
+            }
+
+            .picos-table {
+                display: block !important;
+                margin: 15px 0;
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+
+            .picos-table h4 {
+                font-size: 10pt;
+                margin-bottom: 8px;
+            }
+
+            .picos-table h4 .badge {
+                font-size: 8pt;
+                padding: 2px 8px;
+            }
+
+            .picos-table table {
+                font-size: 8pt;
+                border: 1px solid #ccc;
+            }
+
+            .picos-table th,
+            .picos-table td {
+                padding: 4px 6px;
+                font-size: 7pt;
+            }
+
+            .status-badge {
+                min-width: 55px;
+                font-size: 6pt;
+                padding: 1px 4px;
+            }
+
+            .footer {
+                display: none !important;
+            }
+
+            .page-break-before {
+                page-break-before: always;
+            }
+
+            .page-break-after {
+                page-break-after: always;
+            }
+
+            .avoid-break {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .logo-area {
+                align-items: flex-start;
+                width: 100%;
+            }
+
+            .report-info {
+                padding-right: 0;
+            }
+
+            .report-logo {
+                position: static;
+                margin-bottom: 15px;
+                justify-content: flex-start;
+            }
+
+            .report-header h3 {
+                padding-right: 0;
+            }
+
+            .picos-table th,
+            .picos-table td {
+                padding: 8px 10px;
+                font-size: 12px;
+            }
+
+            .status-badge {
+                min-width: 70px;
+                font-size: 10px;
+                padding: 2px 8px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .responsavel-fields-header {
+                display: none;
+            }
+
+            .responsavel-row {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .radio-group {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .nivel-buttons {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .nivel-btn {
+                width: 100%;
+                text-align: center;
+            }
+
+            .picos-table th,
+            .picos-table td {
+                padding: 6px 8px;
+                font-size: 11px;
+            }
+
+            .status-badge {
+                min-width: 60px;
+                font-size: 9px;
+                padding: 2px 6px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container" id="relatorioParaPDF">
+        <!-- Cabeçalho -->
+        <div class="header">
+            <div class="title-section">
+                <div class="title-text">
+                    <h1>Data Logger - Análise de Pressão</h1>
+                    <div class="subtitle">Registro de manutenção / atendimento | Monitoramento de Picos e Estabilidades
+                    </div>
+                </div>
+            </div>
+            <div class="logo-area">
+                <div class="logo-preview" id="logoPreview">
+                    <div class="logo-placeholder" id="logoPlaceholder">Logo da Empresa</div>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn-logo" id="btnAdicionarLogo">Adicionar Logo</button>
+                    <button class="btn-logo btn-remove-logo" id="btnRemoverLogo" style="display: none;">Remover</button>
+                </div>
+                <input type="file" id="logoInput" accept="image/*" style="display: none;">
+            </div>
+        </div>
+
+        <!-- RESPONSÁVEIS -->
+        <div class="responsaveis-section">
+            <div class="responsaveis-header">
+                <div class="responsaveis-title">Equipe Responsável</div>
+                <button class="btn-add-responsavel" id="btnAddResponsavel">Adicionar Responsável</button>
+            </div>
+            <div class="responsavel-fields-header">
+                <div class="field-header">Nome Completo</div>
+                <div class="field-header">Cargo / Função</div>
+                <div class="field-header">Registro / Matrícula</div>
+            </div>
+            <div class="responsaveis-grid" id="responsaveisGrid"></div>
+        </div>
+
+        <!-- FORMULÁRIO -->
+        <div class="form-section">
+            <div class="form-title">Dados da Manutenção</div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Equipamento / Cliente</label>
+                    <input type="text" id="equipamento" placeholder="Ex: Bomba Hidráulica">
+                </div>
+                <div class="form-group">
+                    <label>Endereço</label>
+                    <input type="text" id="endereco" placeholder="Rua, número, bairro, cidade">
+                </div>
+                <div class="form-group-small">
+                    <label>Pressão de Trabalho (100%)</label>
+                    <input type="number" id="pressaoTrabalho" step="0.001" placeholder="Ex: 0.350" value="0.350">
+                    <div class="pressao-info">Valor de referência para calcular diferença percentual dos picos</div>
+                </div>
+            </div>
+
+            <div class="classification-group">
+                <div class="classification-title">Classificação da Manutenção</div>
+                <div class="radio-group">
+                    <div class="radio-option">
+                        <input type="radio" name="tipoManutencao" id="preventiva" value="Preventiva">
+                        <label for="preventiva">Preventiva</label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" name="tipoManutencao" id="corretiva" value="Corretiva">
+                        <label for="corretiva">Corretiva</label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" name="tipoManutencao" id="emergencia" value="Emergência">
+                        <label for="emergencia">Emergência</label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" name="tipoManutencao" id="averiguar" value="Averiguar">
+                        <label for="averiguar">Averiguar</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="classification-group">
+                <div class="classification-title">Nível de Serviço</div>
+                <div class="nivel-buttons" id="nivelGroup">
+                    <div class="nivel-btn" data-nivel="A">Nível A</div>
+                    <div class="nivel-btn" data-nivel="B">Nível B</div>
+                    <div class="nivel-btn" data-nivel="B-AR">Nível B-AR</div>
+                    <div class="nivel-btn" data-nivel="C">Nível C</div>
+                </div>
+            </div>
+
+            <div class="pressao-trabalho-destaque" id="pressaoDestaque">
+                <div class="label">⚙️ PRESSÃO DE TRABALHO (100%)</div>
+                <div class="value" id="pressaoDestaqueValor">0.350 Bar</div>
+            </div>
+
+            <div class="form-row" style="margin-top: 15px;">
+                <div class="form-group" style="flex: 1;">
+                    <label>Observações</label>
+                    <textarea id="obs" rows="3" placeholder="Informações adicionais..."></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- RELATÓRIO PARA IMPRESSÃO -->
+        <div class="report-header" id="reportHeader">
+            <div class="report-logo" id="reportLogo"></div>
+            <h3>RELATÓRIO DE ANÁLISE DE PRESSÃO</h3>
+            <div class="report-info">
+                <div class="report-item">
+                    <div class="label">Equipamento / Cliente</div>
+                    <div class="value" id="reportEquipamento">—</div>
+                </div>
+                <div class="report-item">
+                    <div class="label">Endereço</div>
+                    <div class="value" id="reportEndereco">—</div>
+                </div>
+                <div class="report-item">
+                    <div class="label">Pressão Trabalho</div>
+                    <div class="value" id="reportPressaoTrabalho">—</div>
+                </div>
+                <div class="report-item">
+                    <div class="label">Classificação</div>
+                    <div class="value" id="reportClassificacao">—</div>
+                </div>
+                <div class="report-item">
+                    <div class="label">Nível</div>
+                    <div class="value" id="reportNivel">—</div>
+                </div>
+                <div class="report-item">
+                    <div class="label">Data/Hora</div>
+                    <div class="value" id="reportDataHora">—</div>
+                </div>
+                <div class="report-item" id="obsReportItem" style="display: none;">
+                    <div class="label">Observações</div>
+                    <div class="value" id="reportObs" style="white-space: pre-wrap;"></div>
+                </div>
+            </div>
+            <div class="responsaveis-report" id="responsaveisReport">
+                <h4>EQUIPE RESPONSÁVEL</h4>
+                <div class="responsaveis-report-grid" id="responsaveisReportGrid"></div>
+            </div>
+        </div>
+
+        <!-- UPLOAD -->
+        <div class="upload-area" id="uploadArea">
+            <input type="file" id="csvFile" accept=".csv">
+            <div class="upload-label" id="uploadLabelBtn">📂 Carregar CSV de Pressão</div>
+            <div class="file-info" id="fileInfo">Nenhum arquivo selecionado</div>
+        </div>
+
+        <!-- BOTÕES -->
+        <div class="action-buttons">
+            <button class="btn btn-secondary" id="btnLimparFormulario">🗑️ Limpar Formulário</button>
+            <button class="btn btn-secondary" id="btnLimparDados">📊 Limpar Gráfico</button>
+            <button class="btn btn-primary" id="btnImprimir">🖨️ Imprimir Relatório</button>
+        </div>
+
+        <div class="error" id="errorMsg"></div>
+
+        <!-- GRÁFICO -->
+        <div class="chart-container" id="chartContainer">
+            <canvas id="pressureChart"></canvas>
+        </div>
+
+        <!-- Legenda do Gráfico -->
+        <div class="chart-legend" id="chartLegend" style="display: none;">
+            <div class="legend-period">
+                📅 Período: <span id="periodoInicio">—</span> até <span id="periodoFim">—</span>
+            </div>
+            <div class="legend-peak">
+                <div class="legend-peak-color"></div>
+                <span>🔴 Picos de Pressão (>5%)</span>
+            </div>
+            <div class="legend-stable">
+                <div class="legend-stable-color"></div>
+                <span>🟢 Início de Estabilidade</span>
+            </div>
+        </div>
+
+        <!-- ESTATÍSTICAS -->
+        <div class="stats-row" id="statsRow" style="display: none;"></div>
+
+        <!-- TABELA DE PICOS -->
+        <div class="picos-table" id="picosTableContainer" style="display: none;">
+            <h4>
+                📋 Lista Completa de Picos de Pressão (Ordem de Tempo)
+                <span class="badge" id="picosCountBadge">0 picos</span>
+            </h4>
+            <div id="picosTable"></div>
+        </div>
+
+        <div class="footer">
+            <div
+                style="border-top: 1px solid #e5e7eb; padding-top: 6px; margin-top: 10px; font-size: 7pt; color: #7a8e9e;">
+                <div>Processamento local | Picos > 5% | Estabilidade detectada</div>
+                <div style="text-align: right; opacity: 0.65; margin-top: 2px;">by Adriano Monteiro</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ================================================================
+        // JAVASCRIPT COM MELHORIAS DE SEGURANÇA
+        // ================================================================
+
+        let chartInstance = null;
+        let dadosProcessados = false;
+        let nivelSelecionado = '';
+        let rawTimes = [];
+        let rawPressures = [];
+        let logoDataURL = null;
+        let nextResponsavelId = 1;
+        let resizeObserver = null;
+        let currentChartData = null;
+        let currentPeaks = [];
+        let currentStablePoints = [];
+
+        const nivelDescricoes = {
+            'A': 'Filtros',
+            'B': 'Itens A e ajustes',
+            'B-AR': 'Itens A, B e abertura',
+            'C': 'Itens A, B e troca de KIT'
+        };
+
+        // ================================================================
+        // 1. FUNÇÃO DE SANITIZAÇÃO (Proteção XSS)
+        // ================================================================
+        function escapeHtml(str) {
+            if (!str) return str;
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // ================================================================
+        // 2. LÓGICA DE DETECÇÃO DE PICOS (Inalterada)
+        // ================================================================
+        function detectPeaks(pressures) {
+            if (!Array.isArray(pressures) || pressures.length < 5) return [];
+            const candidates = [];
+            const HALF_WINDOW = 5;
+            const MIN_VARIATION = 5;
+            const MIN_DISTANCE = 5;
+            for (let i = 2; i < pressures.length - 2; i++) {
+                const current = Number(pressures[i]);
+                const prev1 = Number(pressures[i - 1]);
+                const next1 = Number(pressures[i + 1]);
+                if (!Number.isFinite(current) || !Number.isFinite(prev1) || !Number.isFinite(next1)) continue;
+                if (!(current > prev1 && current >= next1)) continue;
+                const start = Math.max(0, i - HALF_WINDOW);
+                const end = Math.min(pressures.length, i + HALF_WINDOW + 1);
+                const neighbors = [];
+                for (let j = start; j < end; j++) {
+                    if (j !== i && Number.isFinite(Number(pressures[j]))) {
+                        neighbors.push(Number(pressures[j]));
+                    }
+                }
+                if (!neighbors.length) continue;
+                const localAvg = neighbors.reduce((sum, value) => sum + value, 0) / neighbors.length;
+                if (!(localAvg > 0)) continue;
+                const variacaoPercentual = ((current - localAvg) / localAvg) * 100;
+                if (variacaoPercentual > MIN_VARIATION) {
+                    candidates.push({ index: i, value: current, variacaoPercentual, localAvg });
+                }
+            }
+            const filteredPeaks = [];
+            candidates.forEach(candidate => {
+                const last = filteredPeaks[filteredPeaks.length - 1];
+                if (!last || candidate.index - last.index > MIN_DISTANCE) {
+                    filteredPeaks.push(candidate);
+                } else if (candidate.value > last.value) {
+                    filteredPeaks[filteredPeaks.length - 1] = candidate;
+                }
+            });
+            return filteredPeaks;
+        }
+
+        function detectStabilityStarts(pressures, times) {
+            const stablePoints = [];
+            const stabilityThreshold = 2.0;
+            for (let i = 2; i < pressures.length - 2; i++) {
+                const window = pressures.slice(i - 2, i + 3);
+                const maxVal = Math.max(...window);
+                const minVal = Math.min(...window);
+                const variacao = maxVal > 0 ? ((maxVal - minVal) / maxVal) * 100 : 0;
+                if (variacao <= stabilityThreshold) {
+                    const lastStable = stablePoints[stablePoints.length - 1];
+                    if (!lastStable || (i - lastStable.index) > 10) {
+                        stablePoints.push({ index: i, time: times[i], value: pressures[i], type: 'início de estabilidade' });
+                    }
+                }
+            }
+            return stablePoints;
+        }
+
+        function getStatusClassAndText(percentual) {
+            if (percentual >= 100) return { class: 'status-alto-100', text: '🔴 ALTO 100%+' };
+            else if (percentual >= 90) return { class: 'status-alto-90', text: '🔴 ALTO 90%' };
+            else if (percentual >= 80) return { class: 'status-alto-80', text: '🔴 ALTO 80%' };
+            else if (percentual >= 70) return { class: 'status-alto-70', text: '🔴 ALTO 70%' };
+            else if (percentual >= 60) return { class: 'status-alto-60', text: '🔴 ALTO 60%' };
+            else if (percentual >= 50) return { class: 'status-alto-50', text: '🔴 ALTO 50%' };
+            else if (percentual >= 40) return { class: 'status-alto-40', text: '🔴 ALTO 40%' };
+            else if (percentual >= 30) return { class: 'status-alto-30', text: '🔴 ALTO 30%' };
+            else if (percentual >= 20) return { class: 'status-alto-20', text: '🔴 ALTO 20%' };
+            else if (percentual >= 10) return { class: 'status-alto-10', text: '🔴 ALTO 10%' };
+            else if (percentual >= 5) return { class: 'status-alto-10', text: '🔴 ALTO 5%' };
+            else if (percentual <= -100) return { class: 'status-baixo-100', text: '📉 BAIXO 100%+' };
+            else if (percentual <= -90) return { class: 'status-baixo-90', text: '📉 BAIXO 90%' };
+            else if (percentual <= -80) return { class: 'status-baixo-80', text: '📉 BAIXO 80%' };
+            else if (percentual <= -70) return { class: 'status-baixo-70', text: '📉 BAIXO 70%' };
+            else if (percentual <= -60) return { class: 'status-baixo-60', text: '📉 BAIXO 60%' };
+            else if (percentual <= -50) return { class: 'status-baixo-50', text: '📉 BAIXO 50%' };
+            else if (percentual <= -40) return { class: 'status-baixo-40', text: '📉 BAIXO 40%' };
+            else if (percentual <= -30) return { class: 'status-baixo-30', text: '📉 BAIXO 30%' };
+            else if (percentual <= -20) return { class: 'status-baixo-20', text: '📉 BAIXO 20%' };
+            else if (percentual <= -10) return { class: 'status-baixo-10', text: '📉 BAIXO 10%' };
+            else if (percentual <= -5) return { class: 'status-baixo-10', text: '📉 BAIXO 5%' };
+            else return { class: 'status-normal', text: '✓ NORMAL' };
+        }
+
+        // ================================================================
+        // 3. FUNÇÕES AUXILIARES
+        // ================================================================
+        function getPressaoReferencia() {
+            const valor = parseFloat(document.getElementById('pressaoTrabalho').value);
+            return Number.isFinite(valor) && valor > 0 ? valor : 0.350;
+        }
+
+        function calcularDiferencaPercentual(valorPico, pressaoReferencia) {
+            const valor = Number(valorPico);
+            const referencia = Number(pressaoReferencia);
+            if (!Number.isFinite(valor) || !Number.isFinite(referencia) || referencia <= 0) return 0;
+            return ((valor - referencia) / referencia) * 100;
+        }
+
+        function extractTimeOnly(fullTime) {
+            const timeMatch = fullTime.match(/(\d{2}:\d{2}:\d{2})/);
+            return timeMatch ? timeMatch[1] : fullTime;
+        }
+
+        // ================================================================
+        // 4. ELEMENTOS DOM E EVENTOS DE LOGO
+        // ================================================================
+        const logoInput = document.getElementById('logoInput');
+        const btnAdicionarLogo = document.getElementById('btnAdicionarLogo');
+        const btnRemoverLogo = document.getElementById('btnRemoverLogo');
+        const logoPreview = document.getElementById('logoPreview');
+        const logoPlaceholder = document.getElementById('logoPlaceholder');
+        const reportLogo = document.getElementById('reportLogo');
+        const footerLogo = document.getElementById('footerLogo');
+
+        function atualizarLogos() {
+            if (logoDataURL) {
+                logoPreview.innerHTML = `<img src="${logoDataURL}" alt="Logo">`;
+                logoPlaceholder.style.display = 'none';
+                reportLogo.innerHTML = `<img src="${logoDataURL}" alt="Logo" style="max-width:100%; max-height:100%; object-fit:contain;">`;
+                footerLogo.innerHTML = `<img src="${logoDataURL}" alt="Logo">`;
+                btnRemoverLogo.style.display = 'inline-block';
+            } else {
+                logoPreview.innerHTML = `<div class="logo-placeholder">Logo da Empresa</div>`;
+                reportLogo.innerHTML = '';
+                footerLogo.innerHTML = '';
+                btnRemoverLogo.style.display = 'none';
+            }
+        }
+
+        btnAdicionarLogo.addEventListener('click', () => logoInput.click());
+        logoInput.addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    logoDataURL = e.target.result;
+                    atualizarLogos();
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        btnRemoverLogo.addEventListener('click', () => {
+            logoDataURL = null;
+            atualizarLogos();
+            logoInput.value = '';
+        });
+
+        // ================================================================
+        // 5. RESPONSÁVEIS
+        // ================================================================
+        const responsaveisGrid = document.getElementById('responsaveisGrid');
+        const responsaveisReportGrid = document.getElementById('responsaveisReportGrid');
+        const responsaveisReport = document.getElementById('responsaveisReport');
+
+        function adicionarResponsavel() {
+            const id = nextResponsavelId++;
+            const card = document.createElement('div');
+            card.className = 'responsavel-card';
+            card.setAttribute('data-id', id);
+            card.innerHTML = `
+                <button class="btn-remove-responsavel" onclick="removerResponsavel(${id})">Remover</button>
+                <div class="responsavel-row">
+                    <div class="responsavel-field">
+                        <input type="text" class="resp-nome" placeholder="Nome completo">
+                    </div>
+                    <div class="responsavel-field">
+                        <input type="text" class="resp-cargo" placeholder="Cargo / Função">
+                    </div>
+                    <div class="responsavel-field">
+                        <input type="text" class="resp-registro" placeholder="Registro / Matrícula">
+                    </div>
+                </div>
+            `;
+            responsaveisGrid.appendChild(card);
+            const inputs = card.querySelectorAll('input');
+            inputs.forEach(input => input.addEventListener('input', () => atualizarRelatorioResponsaveis()));
+            atualizarRelatorioResponsaveis();
+        }
+
+        function removerResponsavel(id) {
+            const card = document.querySelector(`.responsavel-card[data-id='${id}']`);
+            if (card) card.remove();
+            atualizarRelatorioResponsaveis();
+        }
+
+        function atualizarRelatorioResponsaveis() {
+            const cards = document.querySelectorAll('.responsavel-card');
+            const responsaveis = [];
+            cards.forEach(card => {
+                const nome = card.querySelector('.resp-nome')?.value || '';
+                const cargo = card.querySelector('.resp-cargo')?.value || '';
+                const registro = card.querySelector('.resp-registro')?.value || '';
+                if (nome || cargo || registro) responsaveis.push({ nome, cargo, registro });
+            });
+            if (responsaveis.length === 0) {
+                responsaveisReport.style.display = 'none';
+                return;
+            }
+            responsaveisReport.style.display = 'block';
+            let html = '';
+            responsaveis.forEach(resp => {
+                html += `<div class="responsavel-report-card">
+                            <div class="nome">${escapeHtml(resp.nome) || '—'}</div>
+                            <div class="cargo">${escapeHtml(resp.cargo) || '—'}</div>
+                            <div class="registro">${escapeHtml(resp.registro) || '—'}</div>
+                         </div>`;
+            });
+            responsaveisReportGrid.innerHTML = html;
+        }
+
+        document.getElementById('btnAddResponsavel').addEventListener('click', adicionarResponsavel);
+
+        // ================================================================
+        // 6. ATUALIZAÇÃO DO RELATÓRIO E FORMULÁRIO
+        // ================================================================
+        const pressaoTrabalhoInput = document.getElementById('pressaoTrabalho');
+        const pressaoDestaqueValor = document.getElementById('pressaoDestaqueValor');
+        const obsTextarea = document.getElementById('obs');
+        const obsReportItem = document.getElementById('obsReportItem');
+        const reportObs = document.getElementById('reportObs');
+
+        function atualizarPressaoDestaque() {
+            const valor = parseFloat(pressaoTrabalhoInput.value);
+            const valido = Number.isFinite(valor) && valor > 0;
+            pressaoTrabalhoInput.classList.toggle('input-invalid', !valido);
+            pressaoDestaqueValor.textContent = valido ? `${valor.toFixed(3)} Bar` : 'Valor inválido';
+        }
+
+        function atualizarObservacoes() {
+            const obsValue = obsTextarea.value.trim();
+            if (obsValue) {
+                reportObs.textContent = obsValue; // textContent previne XSS
+                obsReportItem.style.display = 'block';
+            } else {
+                obsReportItem.style.display = 'none';
+            }
+        }
+
+        function getClassificacaoTexto() {
+            if (document.getElementById('preventiva').checked) return 'Preventiva';
+            if (document.getElementById('corretiva').checked) return 'Corretiva';
+            if (document.getElementById('emergencia').checked) return 'Emergência';
+            if (document.getElementById('averiguar').checked) return 'Averiguar';
+            return 'Não informado';
+        }
+
+        function atualizarCabecalhoRelatorio() {
+            document.getElementById('reportEquipamento').innerHTML = escapeHtml(document.getElementById('equipamento').value) || '—';
+            document.getElementById('reportEndereco').innerHTML = escapeHtml(document.getElementById('endereco').value) || '—';
+            const pressaoValor = pressaoTrabalhoInput.value;
+            document.getElementById('reportPressaoTrabalho').innerHTML = pressaoValor ? `${pressaoValor} Bar` : '—';
+            document.getElementById('reportClassificacao').innerHTML = getClassificacaoTexto();
+            const nivelSpan = document.getElementById('reportNivel');
+            nivelSpan.innerHTML = nivelSelecionado ? `Nível ${nivelSelecionado}` : '—';
+            nivelSpan.className = `value classification ${nivelSelecionado || ''}`;
+            document.getElementById('reportDataHora').innerHTML = new Date().toLocaleString('pt-BR');
+            atualizarObservacoes();
+            if (dadosProcessados && currentPeaks.length > 0) {
+                displayPicosTable(currentPeaks, rawTimes);
+            }
+            if (dadosProcessados) {
+                document.getElementById('reportHeader').style.display = 'block';
+                atualizarRelatorioResponsaveis();
+            }
+        }
+
+        document.getElementById('equipamento').addEventListener('input', atualizarCabecalhoRelatorio);
+        document.getElementById('endereco').addEventListener('input', atualizarCabecalhoRelatorio);
+        document.querySelectorAll('input[name="tipoManutencao"]').forEach(el => el.addEventListener('change', atualizarCabecalhoRelatorio));
+        pressaoTrabalhoInput.addEventListener('input', function () {
+            atualizarPressaoDestaque();
+            atualizarCabecalhoRelatorio();
+            if (dadosProcessados && currentPeaks.length > 0) displayPicosTable(currentPeaks, rawTimes);
+            if (dadosProcessados) recriarGrafico();
+        });
+        obsTextarea.addEventListener('input', atualizarObservacoes);
+
+        // Níveis
+        document.querySelectorAll('.nivel-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+                document.querySelectorAll('.nivel-btn').forEach(b => b.classList.remove('selected'));
+                this.classList.add('selected');
+                nivelSelecionado = this.getAttribute('data-nivel');
+                atualizarCabecalhoRelatorio();
+            });
+        });
+
+        // ================================================================
+        // 7. GRÁFICO
+        // ================================================================
+        const chartContainer = document.getElementById('chartContainer');
+
+        function createChart(labels, lineData, peakData, stableData, maxPressure) {
+            const ctx = document.getElementById('pressureChart').getContext('2d');
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
+            }
+            const timeLabels = labels.map(t => extractTimeOnly(t));
+            const datasets = [{
+                label: 'Pressão (Bar)',
+                data: lineData,
+                fill: true,
+                backgroundColor: 'rgba(108,173,220,0.1)',
+                borderColor: '#6caddc',
+                borderWidth: 2,
+                tension: 0.1,
+                pointRadius: 0,
+                pointHoverRadius: 5,
+                spanGaps: true
+            }];
+            if (peakData.some(v => v !== null)) {
+                datasets.push({
+                    label: '🔴 Picos de Pressão (>5%)',
+                    data: peakData,
+                    fill: false,
+                    borderColor: '#c07070',
+                    backgroundColor: '#c07070',
+                    pointRadius: 7,
+                    pointHoverRadius: 11,
+                    pointBorderColor: '#a05050',
+                    pointBackgroundColor: '#c07070',
+                    showLine: false
+                });
+            }
+            if (stableData.some(v => v !== null)) {
+                datasets.push({
+                    label: '🟢 Início de Estabilidade',
+                    data: stableData,
+                    fill: false,
+                    borderColor: '#2c9e6e',
+                    backgroundColor: '#2c9e6e',
+                    pointRadius: 8,
+                    pointHoverRadius: 12,
+                    pointBorderColor: '#1a6e4a',
+                    pointBackgroundColor: '#2c9e6e',
+                    pointStyle: 'rectRot',
+                    showLine: false
+                });
+            }
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: { labels: timeLabels, datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { position: 'top', labels: { color: '#2c6e9e', font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: function (context) {
+                                    if (context.raw === null) return '';
+                                    const originalTime = labels[context.dataIndex];
+                                    const pressaoRef = getPressaoReferencia();
+                                    const diffPercentual = calcularDiferencaPercentual(context.raw, pressaoRef);
+                                    let additionalInfo = '';
+                                    if (context.dataset.label.includes('Estabilidade')) {
+                                        additionalInfo = '\n📍 Início de período estável';
+                                    } else if (context.dataset.label.includes('Picos')) {
+                                        const statusInfo = getStatusClassAndText(diffPercentual);
+                                        additionalInfo = `\n📊 Status: ${statusInfo.text}`;
+                                    }
+                                    return `${context.dataset.label}: ${context.raw.toFixed(4)} Bar\n⏱️ ${originalTime}\n📊 Diferença: ${diffPercentual >= 0 ? '+' : ''}${diffPercentual.toFixed(2)}%${additionalInfo}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            title: { display: true, text: 'Pressão (Bar)', color: '#7a8e9e' },
+                            grid: { color: '#e2e8f0' },
+                            ticks: { color: '#5a6e7e' },
+                            suggestedMin: 0,
+                            suggestedMax: Math.ceil(maxPressure * 1.1)
+                        },
+                        x: {
+                            title: { display: true, text: 'Horário (HH:MM:SS)', color: '#7a8e9e' },
+                            grid: { display: false },
+                            ticks: { color: '#5a6e7e', maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 15 }
+                        }
+                    }
+                }
+            });
+            chartContainer.style.display = 'block';
+            updateChartLegend(labels);
+        }
+
+        function updateChartLegend(times) {
+            if (times.length > 0) {
+                const primeiro = times[0];
+                const ultimo = times[times.length - 1];
+                const timeInicio = extractTimeOnly(primeiro);
+                const timeFim = extractTimeOnly(ultimo);
+                const dataInicio = primeiro.split(' ')[0] || primeiro;
+                const dataFim = ultimo.split(' ')[0] || ultimo;
+                document.getElementById('periodoInicio').innerHTML = `${escapeHtml(dataInicio)} ${escapeHtml(timeInicio)}`;
+                document.getElementById('periodoFim').innerHTML = `${escapeHtml(dataFim)} ${escapeHtml(timeFim)}`;
+                document.getElementById('chartLegend').style.display = 'flex';
+            }
+        }
+
+        function recriarGrafico() {
+            if (currentChartData && chartContainer.style.display === 'block') {
+                createChart(currentChartData.times, currentChartData.lineData, currentChartData.peakData, currentChartData.stableData, currentChartData.maxPressure);
+            }
+        }
+
+        // ================================================================
+        // 8. DISPLAY DE TABELA E STATS
+        // ================================================================
+        function displayPicosTable(peaks, times) {
+            const pressaoRef = getPressaoReferencia();
+            const picosCountBadge = document.getElementById('picosCountBadge');
+            if (picosCountBadge) picosCountBadge.textContent = `${peaks.length} pico${peaks.length !== 1 ? 's' : ''}`;
+            if (peaks.length === 0) {
+                document.getElementById('picosTable').innerHTML = `
+                    <div style="padding: 30px; text-align: center; background-color: #fef0f0; border-radius: 8px;">
+                        ⚠️ Nenhum pico de pressão com variação > 5% foi detectado nos dados.
+                    </div>`;
+                document.getElementById('picosTableContainer').style.display = 'block';
+                return;
+            }
+            let html = `<table><thead><tr style="background-color: #f1f5f9;">
+                <th>#</th><th>Horário</th><th>Pressão (Bar)</th><th>Diferença (%)</th><th>Referência (Bar)</th><th>Status</th>
+            </tr></thead><tbody>`;
+            peaks.forEach((pico, idx) => {
+                const timeOnly = extractTimeOnly(times[pico.index]);
+                const diferencaPercentual = calcularDiferencaPercentual(pico.value, pressaoRef);
+                const diferencaFormatada = diferencaPercentual.toFixed(2);
+                const sinal = diferencaPercentual >= 0 ? '+' : '';
+                const cssClass = diferencaPercentual >= 0 ? 'diferenca-positiva' : 'diferenca-negativa';
+                const statusInfo = getStatusClassAndText(diferencaPercentual);
+                html += `<tr style="background-color: ${Math.abs(diferencaPercentual) > 80 ? '#ffe0d0' : '#ffffff'};">
+                            <td><strong>${idx + 1}</strong></td>
+                            <td>${escapeHtml(timeOnly)}</td>
+                            <td class="${cssClass}"><strong>${pico.value.toFixed(4)}</strong></td>
+                            <td class="${cssClass}"><strong>${sinal}${diferencaFormatada}%</strong></td>
+                            <td style="color:#7a8e9e;">${pressaoRef.toFixed(3)}</td>
+                            <td><span class="status-badge ${statusInfo.class}">${statusInfo.text}</span></td>
+                           </tr>`;
+            });
+            html += '</tbody></table>';
+            document.getElementById('picosTable').innerHTML = html;
+            document.getElementById('picosTableContainer').style.display = 'block';
+        }
+
+        function displayStatsPreview(pressures, peaks, stablePoints) {
+            const maxPressure = Math.max(...pressures);
+            const minPressure = Math.min(...pressures);
+            const avgPressure = pressures.reduce((a, b) => a + b, 0) / pressures.length;
+            const maxPeak = peaks.length > 0 ? Math.max(...peaks.map(p => p.value)) : 0;
+            const pressaoRef = getPressaoReferencia();
+            const maxPeakDiferenca = calcularDiferencaPercentual(maxPeak, pressaoRef);
+            const statsRow = document.getElementById('statsRow');
+            statsRow.style.display = 'flex';
+            statsRow.innerHTML = `
+                <div class="stat-box"><div class="stat-value">${maxPressure.toFixed(3)}</div><div class="stat-label">Máxima Geral</div></div>
+                <div class="stat-box"><div class="stat-value">${minPressure.toFixed(3)}</div><div class="stat-label">Mínima Geral</div></div>
+                <div class="stat-box"><div class="stat-value">${avgPressure.toFixed(3)}</div><div class="stat-label">Média</div></div>
+                <div class="stat-box"><div class="stat-value" style="color:#c07070">${maxPeak.toFixed(3)}</div><div class="stat-label">Maior Pico</div></div>
+                <div class="stat-box"><div class="stat-value" style="color:#c07070">${maxPeakDiferenca >= 0 ? '+' : ''}${maxPeakDiferenca.toFixed(2)}%</div><div class="stat-label">Variação</div></div>
+                <div class="stat-box"><div class="stat-value">${peaks.length}</div><div class="stat-label">Total Picos</div></div>
+                <div class="stat-box"><div class="stat-value">${stablePoints.length}</div><div class="stat-label">Estabilidades</div></div>
+            `;
+        }
+
+        // ================================================================
+        // 9. PROCESSAMENTO DO CSV (COM VALIDAÇÃO DE TAMANHO)
+        // ================================================================
+        function processCSV(data) {
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.style.display = 'none';
+            limparDadosGrafico();
+            if (!data || data.length < 2) {
+                showError('Arquivo vazio ou com poucos dados');
+                return;
+            }
+            rawTimes = [];
+            rawPressures = [];
+            const firstRow = Array.isArray(data[0]) ? data[0] : [];
+            const firstPressure = firstRow.length >= 2 ? parseFloat(String(firstRow[1]).replace(',', '.').trim()) : NaN;
+            const startIndex = Number.isFinite(firstPressure) ? 0 : 1;
+            for (let rowIdx = startIndex; rowIdx < data.length; rowIdx++) {
+                const row = data[rowIdx];
+                if (!row || row.length < 2) continue;
+                const timeStr = row[0] != null ? String(row[0]).trim() : '';
+                const pressStr = row[1] != null ? String(row[1]).replace(',', '.').trim() : '';
+                const press = parseFloat(pressStr);
+                if (timeStr !== '' && Number.isFinite(press)) {
+                    rawTimes.push(timeStr);
+                    rawPressures.push(press);
+                }
+            }
+            if (rawTimes.length === 0) {
+                showError('Não foi possível encontrar dados. Verifique o formato do CSV.');
+                return;
+            }
+            currentPeaks = detectPeaks(rawPressures);
+            currentStablePoints = detectStabilityStarts(rawPressures, rawTimes);
+            const maxPressure = Math.max(...rawPressures);
+            const peakData = new Array(rawPressures.length).fill(null);
+            currentPeaks.forEach(peak => { peakData[peak.index] = peak.value; });
+            const stableData = new Array(rawPressures.length).fill(null);
+            currentStablePoints.forEach(point => { stableData[point.index] = point.value; });
+            displayPicosTable(currentPeaks, rawTimes);
+            displayStatsPreview(rawPressures, currentPeaks, currentStablePoints);
+            currentChartData = {
+                times: [...rawTimes],
+                lineData: [...rawPressures],
+                peakData: [...peakData],
+                stableData: [...stableData],
+                maxPressure: maxPressure
+            };
+            createChart(rawTimes, rawPressures, peakData, stableData, maxPressure);
+            dadosProcessados = true;
+            atualizarCabecalhoRelatorio();
+            document.getElementById('reportHeader').style.display = 'block';
+            if (document.querySelectorAll('.responsavel-card').length === 0) adicionarResponsavel();
+            const arquivoAtual = document.getElementById('fileInfo');
+            if (arquivoAtual && rawTimes.length) {
+                arquivoAtual.textContent += ` — ${rawTimes.length.toLocaleString('pt-BR')} medições processadas`;
+            }
+        }
+
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            chartContainer.style.display = 'none';
+            document.getElementById('chartLegend').style.display = 'none';
+            if (picosTableContainer) picosTableContainer.style.display = 'none';
+            document.getElementById('statsRow').style.display = 'none';
+            dadosProcessados = false;
+        }
+
+        function limparDadosGrafico() {
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
+            }
+            chartContainer.style.display = 'none';
+            document.getElementById('chartLegend').style.display = 'none';
+            if (picosTableContainer) picosTableContainer.style.display = 'none';
+            document.getElementById('statsRow').style.display = 'none';
+            dadosProcessados = false;
+            rawTimes = [];
+            rawPressures = [];
+            currentChartData = null;
+            currentPeaks = [];
+            currentStablePoints = [];
+        }
+
+        // ================================================================
+        // 10. EVENTO DE UPLOAD COM VALIDAÇÃO DE TAMANHO (SEGURANÇA)
+        // ================================================================
+        const fileInput = document.getElementById('csvFile');
+        const fileInfo = document.getElementById('fileInfo');
+        const uploadLabelBtn = document.getElementById('uploadLabelBtn');
+
+        uploadLabelBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // ============================================================
+            // SEGURANÇA: Limitar tamanho do arquivo para evitar DoS
+            // ============================================================
+            const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+            if (file.size > MAX_FILE_SIZE) {
+                alert(`Arquivo muito grande! O limite máximo é de 50 MB. (Tamanho atual: ${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+                fileInput.value = '';
+                fileInfo.textContent = 'Nenhum arquivo selecionado';
+                return;
+            }
+
+            fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
+
+            Papa.parse(file, {
+                complete: (results) => {
+                    if (results.errors && results.errors.length > 0) {
+                        const errosCriticos = results.errors.filter(err => err.type !== 'FieldMismatch');
+                        if (errosCriticos.length > 0) {
+                            showError(`CSV com erro de leitura: ${errosCriticos[0].message}`);
+                            return;
+                        }
+                    }
+                    processCSV(results.data);
+                },
+                header: false,
+                skipEmptyLines: true,
+                dynamicTyping: false,
+                delimitersToGuess: [',', ';', '\\t', '|'],
+                error: (err) => showError('Erro: ' + err.message)
+            });
+        });
+
+        // ================================================================
+        // 11. BOTÕES DE AÇÃO E IMPRESSÃO
+        // ================================================================
+        document.getElementById('btnLimparFormulario').addEventListener('click', limparFormulario);
+        document.getElementById('btnLimparDados').addEventListener('click', limparDados);
+        document.getElementById('btnImprimir').addEventListener('click', imprimirRelatorio);
+
+        function limparFormulario() {
+            document.getElementById('equipamento').value = '';
+            document.getElementById('endereco').value = '';
+            pressaoTrabalhoInput.value = '0.350';
+            atualizarPressaoDestaque();
+            obsTextarea.value = '';
+            document.querySelectorAll('input[name="tipoManutencao"]').forEach(el => el.checked = false);
+            document.querySelectorAll('.nivel-btn').forEach(b => b.classList.remove('selected'));
+            nivelSelecionado = '';
+            while (responsaveisGrid.children.length > 0) responsaveisGrid.removeChild(responsaveisGrid.firstChild);
+            nextResponsavelId = 1;
+            adicionarResponsavel();
+            atualizarObservacoes();
+            if (!dadosProcessados) document.getElementById('reportHeader').style.display = 'none';
+            else atualizarCabecalhoRelatorio();
+        }
+
+        function limparDados() {
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
+            }
+            chartContainer.style.display = 'none';
+            document.getElementById('chartLegend').style.display = 'none';
+            if (picosTableContainer) picosTableContainer.style.display = 'none';
+            document.getElementById('statsRow').style.display = 'none';
+            document.getElementById('reportHeader').style.display = 'none';
+            document.getElementById('fileInfo').textContent = 'Nenhum arquivo selecionado';
+            dadosProcessados = false;
+            rawTimes = [];
+            rawPressures = [];
+            currentChartData = null;
+            currentPeaks = [];
+            currentStablePoints = [];
+            document.getElementById('errorMsg').style.display = 'none';
+            document.getElementById('csvFile').value = '';
+        }
+
+        function imprimirRelatorio() {
+            if (!dadosProcessados) {
+                alert('Carregue um arquivo CSV primeiro!');
+                return;
+            }
+            const pressaoRef = parseFloat(pressaoTrabalhoInput.value);
+            if (!Number.isFinite(pressaoRef) || pressaoRef <= 0) {
+                alert('Informe uma Pressão de Trabalho maior que zero antes de imprimir.');
+                pressaoTrabalhoInput.focus();
+                return;
+            }
+            atualizarCabecalhoRelatorio();
+            setTimeout(() => window.print(), 200);
+        }
+
+        // ================================================================
+        // 12. RESIZE OBSERVER E INICIALIZAÇÃO
+        // ================================================================
+        function setupResizeObserver() {
+            if (resizeObserver) resizeObserver.disconnect();
+            resizeObserver = new ResizeObserver(() => {
+                setTimeout(() => recriarGrafico(), 100);
+            });
+            if (chartContainer) resizeObserver.observe(chartContainer);
+        }
+        window.addEventListener('resize', function () {
+            setTimeout(() => recriarGrafico(), 150);
+        });
+
+        setupResizeObserver();
+        adicionarResponsavel();
+        atualizarPressaoDestaque();
+    </script>
+</body>
+
+</html>
