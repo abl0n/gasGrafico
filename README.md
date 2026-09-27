@@ -3,10 +3,13 @@
 ![Status](https://img.shields.io/badge/status-ativo-brightgreen)
 ![Licença](https://img.shields.io/badge/licença-MIT-blue)
 ![Plataforma](https://img.shields.io/badge/plataforma-web-blueviolet)
+![Zero deps](https://img.shields.io/badge/dependências-zero-success)
 
 Ferramenta web para análise de pressão em manutenções industriais e atendimentos técnicos. Carregue um arquivo CSV, visualize gráficos interativos, detecte automaticamente picos e pontos de estabilidade, e gere relatórios profissionais prontos para impressão em formato A4.
 
 🔗 **Acesse o sistema online:** [https://abl0n.github.io/gasGrafico/](https://abl0n.github.io/gasGrafico/)
+
+> 🔐 **CSP rígida:** `default-src 'none'` + `script-src 'self'` — o app não carrega nada de fora.
 
 ---
 
@@ -28,10 +31,11 @@ Ferramenta web para análise de pressão em manutenções industriais e atendime
 | Ferramenta | Descrição |
 | :--- | :--- |
 | **HTML5 / CSS3** | Estrutura e estilização da interface |
-| **JavaScript (Vanilla)** | Lógica de processamento e interatividade |
-| **[Chart.js](https://www.chartjs.org/)** | Renderização do gráfico de pressão |
-| **[Papa Parse](https://www.papaparse.com/)** | Leitura e parsing de arquivos CSV |
+| **JavaScript (Vanilla)** | Lógica de processamento, parsing CSV e gráfico |
+| **Canvas API** | Renderização do gráfico de pressão (nativo) |
 | **GitHub Pages** | Hospedagem estática e gratuita |
+
+> 🎯 **Zero dependências externas.** Sem CDNs, sem bibliotecas de terceiros — o app funciona 100% offline e o único código executado é o do próprio projeto.
 
 ---
 
@@ -48,3 +52,26 @@ O arquivo deve conter **duas colunas** (sem cabeçalho obrigatório, mas recomen
 2025-01-15 14:30:00,0.352
 2025-01-15 14:30:05,0.355
 2025-01-15 14:30:10,0.348
+```
+
+Suporta separadores `,`, `;`, `\t` e `|`. Aspas duplas com escape (`""`) também são tratadas.
+
+---
+
+## 📦 Como rodar localmente
+
+Por causa da CSP, sirva via HTTP (não abra com `file://`):
+
+```bash
+python -m http.server 8000
+# ou
+npx serve .
+```
+
+Acesse `http://localhost:8000`.
+
+---
+
+## 📝 Licença
+
+MIT
