@@ -6,20 +6,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Data Logger - Análise de Pressão</title>
 
-    <link rel="manifest" href="./manifest.json">
+    <!-- SEO -->
+    <meta name="description" content="Data Logger para análise de pressão industrial. Detecção automática de picos e estabilidade. Processamento 100% local e offline.">
     <meta name="theme-color" content="#2c6e9e">
-    <link rel="apple-touch-icon" href="./icons/icon-192.png">
+    <meta name="referrer" content="no-referrer">
+    <link rel="canonical" href="https://abl0n.github.io/gasGrafico/">
 
+    <!-- PWA -->
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="./icons/icon-192.png">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Data Logger">
 
-    <!--
-        CSP máxima: apenas recursos do próprio domínio.
-        Nenhuma dependência externa, nenhum CDN, nenhuma inline.
-    -->
+    <!-- CSP rígida: apenas recursos do próprio domínio, nenhum inline -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'none';
         script-src 'self';
@@ -33,16 +34,13 @@
         manifest-src 'self';
     ">
 
-    <meta name="referrer" content="no-referrer">
-    <meta name="description" content="Data Logger para análise de pressão com detecção de picos e estabilidade. Processamento 100% local.">
-    <meta name="theme-color" content="#2c6e9e">
-
     <link rel="stylesheet" href="./styles.css">
     <script defer src="./app.js"></script>
 </head>
 
 <body>
     <div class="container" id="relatorioParaPDF">
+
         <!-- ============ CABEÇALHO ============ -->
         <header class="header">
             <div class="title-section">
@@ -63,214 +61,223 @@
             </div>
         </header>
 
-        <!-- ============ RESPONSÁVEIS ============ -->
-        <section class="responsaveis-section" aria-labelledby="responsaveisTitle">
-            <div class="responsaveis-header">
-                <h2 class="responsaveis-title" id="responsaveisTitle">Equipe Responsável</h2>
-                <button type="button" class="btn-add-responsavel" id="btnAddResponsavel">Adicionar Responsável</button>
+        <!-- ============ CONTEÚDO PRINCIPAL ============ -->
+        <main>
+
+            <!-- RESPONSÁVEIS -->
+            <section class="responsaveis-section" aria-labelledby="responsaveisTitle">
+                <div class="responsaveis-header">
+                    <h2 class="responsaveis-title" id="responsaveisTitle">Equipe Responsável</h2>
+                    <button type="button" class="btn-add-responsavel" id="btnAddResponsavel">Adicionar Responsável</button>
+                </div>
+                <div class="responsavel-fields-header" aria-hidden="true">
+                    <div class="field-header">Nome Completo</div>
+                    <div class="field-header">Cargo / Função</div>
+                    <div class="field-header">Registro / Matrícula</div>
+                </div>
+                <div class="responsaveis-grid" id="responsaveisGrid"></div>
+            </section>
+
+            <!-- FORMULÁRIO -->
+            <section class="form-section" aria-labelledby="formTitle">
+                <h2 class="form-title" id="formTitle">Dados da Manutenção</h2>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="equipamento">Equipamento / Cliente</label>
+                        <input type="text" id="equipamento" placeholder="Ex: Bomba Hidráulica">
+                    </div>
+                    <div class="form-group">
+                        <label for="endereco">Endereço</label>
+                        <input type="text" id="endereco" placeholder="Rua, número, bairro, cidade">
+                    </div>
+                    <div class="form-group-small">
+                        <label for="pressaoTrabalho">Pressão de Trabalho (100%)</label>
+                        <input type="number" id="pressaoTrabalho" step="0.001" placeholder="Ex: 0.350">
+                        <div class="pressao-info">Valor de referência para calcular diferença percentual dos picos</div>
+                    </div>
+                </div>
+
+                <fieldset class="classification-group">
+                    <legend class="classification-title">Classificação da Manutenção</legend>
+                    <div class="radio-group">
+                        <label class="radio-option">
+                            <input type="radio" name="tipoManutencao" value="Preventiva">
+                            <span>Preventiva</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="tipoManutencao" value="Corretiva">
+                            <span>Corretiva</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="tipoManutencao" value="Emergência">
+                            <span>Emergência</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="tipoManutencao" value="Averiguar">
+                            <span>Averiguar</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="tipoManutencao" value="Renovação">
+                            <span>Renovação</span>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <fieldset class="classification-group">
+                    <legend class="classification-title">Nível de Serviço</legend>
+                    <div class="nivel-buttons" id="nivelGroup">
+                        <button type="button" class="nivel-btn" data-nivel="A">Nível A</button>
+                        <button type="button" class="nivel-btn" data-nivel="B">Nível B</button>
+                        <button type="button" class="nivel-btn" data-nivel="B-AR">Nível B-AR</button>
+                        <button type="button" class="nivel-btn" data-nivel="C">Nível C</button>
+                    </div>
+                </fieldset>
+
+                <div class="pressao-trabalho-destaque" id="pressaoDestaque">
+                    <div class="label">⚙️ PRESSÃO DE TRABALHO (100%)</div>
+                    <div class="value" id="pressaoDestaqueValor">— Bar</div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="obs">Observações</label>
+                        <textarea id="obs" rows="3" placeholder="Informações adicionais..."></textarea>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RELATÓRIO IMPRESSÃO -->
+            <section class="report-header" id="reportHeader" hidden>
+                <div class="report-logo" id="reportLogo"></div>
+
+                <!-- Título exclusivo da impressão -->
+                <div class="print-only-title">
+                    <div class="print-title">Data Logger - Análise de Pressão</div>
+                    <p class="subtitle">Registro de manutenção / atendimento | Monitoramento de Picos e Estabilidades</p>
+                </div>
+
+                <h3>RELATÓRIO DE ANÁLISE DE PRESSÃO</h3>
+
+                <div class="report-info">
+                    <div class="report-item">
+                        <div class="label">Equipamento / Cliente</div>
+                        <div class="value" id="reportEquipamento">—</div>
+                    </div>
+                    <div class="report-item">
+                        <div class="label">Endereço</div>
+                        <div class="value" id="reportEndereco">—</div>
+                    </div>
+                    <div class="report-item">
+                        <div class="label">Pressão Trabalho</div>
+                        <div class="value" id="reportPressaoTrabalho">—</div>
+                    </div>
+                    <div class="report-item">
+                        <div class="label">Classificação</div>
+                        <div class="value" id="reportClassificacao">—</div>
+                    </div>
+                    <div class="report-item">
+                        <div class="label">Nível</div>
+                        <div class="value" id="reportNivel">—</div>
+                    </div>
+                    <div class="report-item">
+                        <div class="label">Data/Hora</div>
+                        <div class="value" id="reportDataHora">—</div>
+                    </div>
+                    <div class="report-item full-width" id="obsReportItem" hidden>
+                        <div class="label">Observações</div>
+                        <div class="value" id="reportObs"></div>
+                    </div>
+                </div>
+
+                <div class="responsaveis-report" id="responsaveisReport">
+                    <h4>EQUIPE RESPONSÁVEL</h4>
+                    <div class="responsaveis-report-grid" id="responsaveisReportGrid"></div>
+                </div>
+            </section>
+
+            <!-- UPLOAD -->
+            <section class="upload-area" id="uploadArea">
+                <input type="file" id="csvFile" accept=".csv,text/csv" hidden>
+                <button type="button" class="upload-label" id="uploadLabelBtn">📂 Carregar CSV de Pressão</button>
+                <div class="file-info" id="fileInfo">Nenhum arquivo selecionado</div>
+            </section>
+
+            <!-- AÇÕES -->
+            <div class="action-buttons">
+                <button type="button" class="btn btn-secondary" id="btnLimparFormulario">🗑️ Limpar Formulário</button>
+                <button type="button" class="btn btn-secondary" id="btnLimparDados">📊 Limpar Gráfico</button>
+                <button type="button" class="btn btn-primary" id="btnImprimir">🖨️ Imprimir Relatório</button>
             </div>
-            <div class="responsavel-fields-header" aria-hidden="true">
-                <div class="field-header">Nome Completo</div>
-                <div class="field-header">Cargo / Função</div>
-                <div class="field-header">Registro / Matrícula</div>
-            </div>
-            <div class="responsaveis-grid" id="responsaveisGrid"></div>
-        </section>
 
-        <!-- ============ FORMULÁRIO ============ -->
-        <section class="form-section" aria-labelledby="formTitle">
-            <h2 class="form-title" id="formTitle">Dados da Manutenção</h2>
+            <div class="error" id="errorMsg" role="alert" hidden></div>
 
-            <div class="form-grid">
-                <div class="form-group">
-                    <label for="equipamento">Equipamento / Cliente</label>
-                    <input type="text" id="equipamento" placeholder="Ex: Bomba Hidráulica">
-                </div>
-                <div class="form-group">
-                    <label for="endereco">Endereço</label>
-                    <input type="text" id="endereco" placeholder="Rua, número, bairro, cidade">
-                </div>
-                <div class="form-group-small">
-                    <label for="pressaoTrabalho">Pressão de Trabalho (100%)</label>
-                    <input type="number" id="pressaoTrabalho" step="0.001" placeholder="Ex: 0.350">
-                    <div class="pressao-info">Valor de referência para calcular diferença percentual dos picos</div>
-                </div>
+            <!-- GRÁFICO -->
+            <div class="chart-container" id="chartContainer" hidden>
+                <canvas id="pressureChart" width="1200" height="450"></canvas>
             </div>
 
-            <fieldset class="classification-group">
-                <legend class="classification-title">Classificação da Manutenção</legend>
-                <div class="radio-group">
-                    <label class="radio-option">
-                        <input type="radio" name="tipoManutencao" value="Preventiva">
-                        <span>Preventiva</span>
-                    </label>
-                    <label class="radio-option">
-                        <input type="radio" name="tipoManutencao" value="Corretiva">
-                        <span>Corretiva</span>
-                    </label>
-                    <label class="radio-option">
-                        <input type="radio" name="tipoManutencao" value="Emergência">
-                        <span>Emergência</span>
-                    </label>
-                    <label class="radio-option">
-                        <input type="radio" name="tipoManutencao" value="Averiguar">
-                        <span>Averiguar</span>
-                    </label>
-                    <label class="radio-option">
-                        <input type="radio" name="tipoManutencao" value="Renovação">
-                        <span>Renovação</span>
-                    </label>
+            <!-- LEGENDA -->
+            <div class="chart-legend" id="chartLegend" hidden>
+                <div class="legend-period">
+                    📅 Período: <span id="periodoInicio">—</span> até <span id="periodoFim">—</span>
                 </div>
-            </fieldset>
-
-            <fieldset class="classification-group">
-                <legend class="classification-title">Nível de Serviço</legend>
-                <div class="nivel-buttons" id="nivelGroup">
-                    <button type="button" class="nivel-btn" data-nivel="A">Nível A</button>
-                    <button type="button" class="nivel-btn" data-nivel="B">Nível B</button>
-                    <button type="button" class="nivel-btn" data-nivel="B-AR">Nível B-AR</button>
-                    <button type="button" class="nivel-btn" data-nivel="C">Nível C</button>
-                </div>
-            </fieldset>
-
-            <div class="pressao-trabalho-destaque" id="pressaoDestaque">
-                <div class="label">⚙️ PRESSÃO DE TRABALHO (100%)</div>
-                <div class="value" id="pressaoDestaqueValor">— Bar</div>
-            </div>
-
-            <div class="form-row">
-                <div class="form-group">
-                    <label for="obs">Observações</label>
-                    <textarea id="obs" rows="3" placeholder="Informações adicionais..."></textarea>
+                <div class="legend-peaks">
+                    <div class="legend-peak-item">
+                        <span class="legend-dot p-5"></span> 5%
+                    </div>
+                    <div class="legend-peak-item">
+                        <span class="legend-dot p-10"></span> 10%
+                    </div>
+                    <div class="legend-peak-item">
+                        <span class="legend-dot p-20"></span> 20%
+                    </div>
+                    <div class="legend-peak-item">
+                        <span class="legend-dot p-30"></span> 30%
+                    </div>
+                    <div class="legend-peak-item">
+                        <span class="legend-dot p-35"></span> 35%
+                    </div>
+                    <div class="legend-peak-item">
+                        <span class="legend-dot p-40"></span> 40%
+                    </div>
+                    <div class="legend-peak-item">
+                        <span class="legend-dot p-50"></span> 50%
+                    </div>
+                    <div class="legend-peak-item">
+                        <span class="legend-dot p-60"></span> 60%
+                    </div>
+                    <div class="legend-peak-item">
+                        <span class="legend-dot p-80"></span> 80%
+                    </div>
+                    <div class="legend-peak-item">
+                        <span class="legend-dot stable"></span> Estabilidade
+                    </div>
                 </div>
             </div>
-        </section>
 
-        <!-- ============ RELATÓRIO IMPRESSÃO ============ -->
-        <section class="report-header" id="reportHeader" hidden>
-            <div class="report-logo" id="reportLogo"></div>
+            <!-- ESTATÍSTICAS -->
+            <div class="stats-row" id="statsRow" hidden></div>
 
-            <!-- Cabeçalho exclusivo da impressão -->
-            <div class="print-only-title">
-                <h1>Data Logger - Análise de Pressão</h1>
-                <p class="subtitle">Registro de manutenção / atendimento | Monitoramento de Picos e Estabilidades</p>
+            <!-- TABELA DE PICOS -->
+            <div class="picos-table" id="picosTableContainer" hidden>
+                <h4>
+                    📊 Resumo de Picos por Faixa
+                    <span class="badge" id="picosCountBadge">0 picos</span>
+                </h4>
+                <div id="picosTable"></div>
             </div>
 
+        </main>
 
-            <h3>RELATÓRIO DE ANÁLISE DE PRESSÃO</h3>
-            <div class="report-info">
-                <div class="report-item">
-                    <div class="label">Equipamento / Cliente</div>
-                    <div class="value" id="reportEquipamento">—</div>
-                </div>
-                <div class="report-item">
-                    <div class="label">Endereço</div>
-                    <div class="value" id="reportEndereco">—</div>
-                </div>
-                <div class="report-item">
-                    <div class="label">Pressão Trabalho</div>
-                    <div class="value" id="reportPressaoTrabalho">—</div>
-                </div>
-                <div class="report-item">
-                    <div class="label">Classificação</div>
-                    <div class="value" id="reportClassificacao">—</div>
-                </div>
-                <div class="report-item">
-                    <div class="label">Nível</div>
-                    <div class="value" id="reportNivel">—</div>
-                </div>
-                <div class="report-item">
-                    <div class="label">Data/Hora</div>
-                    <div class="value" id="reportDataHora">—</div>
-                </div>
-                <div class="report-item full-width" id="obsReportItem" hidden>
-                    <div class="label">Observações</div>
-                    <div class="value" id="reportObs"></div>
-                </div>
-            </div>
-            <div class="responsaveis-report" id="responsaveisReport">
-                <h4>EQUIPE RESPONSÁVEL</h4>
-                <div class="responsaveis-report-grid" id="responsaveisReportGrid"></div>
-            </div>
-        </section>
-
-        <!-- ============ UPLOAD ============ -->
-        <section class="upload-area" id="uploadArea">
-            <input type="file" id="csvFile" accept=".csv,text/csv" hidden>
-            <button type="button" class="upload-label" id="uploadLabelBtn">📂 Carregar CSV de Pressão</button>
-            <div class="file-info" id="fileInfo">Nenhum arquivo selecionado</div>
-        </section>
-
-        <!-- ============ AÇÕES ============ -->
-        <div class="action-buttons">
-            <button type="button" class="btn btn-secondary" id="btnLimparFormulario">🗑️ Limpar Formulário</button>
-            <button type="button" class="btn btn-secondary" id="btnLimparDados">📊 Limpar Gráfico</button>
-            <button type="button" class="btn btn-primary" id="btnImprimir">🖨️ Imprimir Relatório</button>
-        </div>
-
-        <div class="error" id="errorMsg" role="alert" hidden></div>
-
-        <!-- ============ GRÁFICO ============ -->
-        <div class="chart-container" id="chartContainer" hidden>
-            <canvas id="pressureChart" width="1200" height="450"></canvas>
-        </div>
-
-        <div class="chart-legend" id="chartLegend" hidden>
-            <div class="legend-period">
-                📅 Período: <span id="periodoInicio">—</span> até <span id="periodoFim">—</span>
-            </div>
-            <div class="legend-peaks">
-                <div class="legend-peak-item">
-                    <span class="legend-dot p-5"></span> 5%
-                </div>
-                <div class="legend-peak-item">
-                    <span class="legend-dot p-10"></span> 10%
-                </div>
-                <div class="legend-peak-item">
-                    <span class="legend-dot p-20"></span> 20%
-                </div>
-                <div class="legend-peak-item">
-                    <span class="legend-dot p-30"></span> 30%
-                </div>
-                <div class="legend-peak-item">
-                    <span class="legend-dot p-35"></span> 35%
-                </div>
-                <div class="legend-peak-item">
-                    <span class="legend-dot p-40"></span> 40%
-                </div>
-                <div class="legend-peak-item">
-                    <span class="legend-dot p-50"></span> 50%
-                </div>
-                <div class="legend-peak-item">
-                    <span class="legend-dot p-60"></span> 60%
-                </div>
-                <div class="legend-peak-item">
-                    <span class="legend-dot p-80"></span> 80%
-                </div>
-                <div class="legend-peak-item">
-                    <span class="legend-dot stable"></span> Estabilidade
-                </div>
-            </div>
-        </div>
-
-        <!-- ============ ESTATÍSTICAS ============ -->
-        <div class="stats-row" id="statsRow" hidden></div>
-
-        <!-- ============ TABELA DE PICOS ============ -->
-        <div class="picos-table" id="picosTableContainer" hidden>
-            <h4>
-                📊 Resumo de Picos por Faixa
-                <span class="badge" id="picosCountBadge">0 picos</span>
-            </h4>
-            <div id="picosTable"></div>
-        </div>
-
+        <!-- ============ RODAPÉ ============ -->
         <footer class="footer">
             <div class="footer-credit">
                 <div>Processamento local | Picos &gt; 2% | Estabilidade detectada</div>
                 <div class="footer-author">by Adriano Monteiro</div>
             </div>
         </footer>
+
     </div>
 </body>
 

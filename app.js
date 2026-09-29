@@ -1049,7 +1049,7 @@ const Tabela = {
      * O CSS precisa ter .w-0 até .w-100.
      */
     _classeLargura(pct) {
-        const n = Math.max(0, Math.min(100, Math.round(pct)));
+        const n = Math.max(0, Math.min(100, Math.round(pct / 5) * 5));
         return 'w-' + n;
     },
 

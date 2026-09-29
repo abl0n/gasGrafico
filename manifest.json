@@ -11,6 +11,9 @@
     "background_color": "#f0f4f8",
     "theme_color": "#2c6e9e",
     "lang": "pt-BR",
+
+
+    
     "icons": [
 {
     "src": "./icons/icon-192.png",
@@ -36,5 +39,8 @@
     "type": "image/png",
     "purpose": "maskable"
 }
+
+
     ]
+    
 }
