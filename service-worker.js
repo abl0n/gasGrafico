@@ -10,7 +10,7 @@
  *   4. Se nada funcionar, devolve o index.html (fallback SPA).
  * ================================================================ */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `datalogger-${CACHE_VERSION}`;
 
 // Arquivos essenciais (a base do app)
