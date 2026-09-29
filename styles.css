@@ -1177,3 +1177,373 @@ body {
     font-size: 10pt;
     padding-right: 80px;
 }
+
+.legend-ref {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.legend-ref-color {
+    width: 16px;
+    height: 16px;
+    background-color: #3b82f6;
+    border-radius: 50%;
+}
+
+/* ================================================================
+   LEGENDA DE PICOS POR MAGNITUDE
+   ================================================================ */
+.legend-peaks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+}
+
+.legend-peak-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--color-text);
+}
+
+.legend-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+/* Bolinhas de cor por faixa */
+.legend-dot.p-5   { background-color: #c07070; border-color: #a05050; }
+.legend-dot.p-10  { background-color: #3b82f6; border-color: #1e40af; }
+.legend-dot.p-20  { background-color: #e67e22; border-color: #a04000; }
+.legend-dot.p-30  { background-color: #8e44ad; border-color: #5b2c6f; }
+.legend-dot.p-35  { background-color: #f9c022; border-color: #b8860b; }
+.legend-dot.p-40  { background-color: #2c9e6e; border-color: #1a6e4a; }
+.legend-dot.p-50  { background-color: #795548; border-color: #4e342e; }
+.legend-dot.p-60  { background-color: #212121; border-color: #000000; }
+.legend-dot.p-80  { background-color: #e91e63; border-color: #ad1457; }
+
+/* Losango verde da estabilidade */
+.legend-dot.stable {
+    background-color: #1a6e4a;
+    border-color: #0a3e2a;
+    border-radius: 0;
+    transform: rotate(45deg);
+    width: 11px;
+    height: 11px;
+}
+
+@media print {
+    .legend-peaks { gap: 8px; font-size: 9pt; }
+    .legend-dot { width: 10px; height: 10px; }
+}
+
+/* ================================================================
+   RESUMO DE PICOS
+   ================================================================ */
+.picos-destaque {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    background-color: #f1f5f9;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    border-left: 4px solid var(--color-primary, #2c6e9e);
+}
+
+.picos-destaque-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 100px;
+}
+
+.picos-destaque-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--color-text-muted, #7a8e9e);
+    font-weight: bold;
+}
+
+.picos-destaque-valor {
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--color-primary, #2c6e9e);
+}
+
+.picos-subtitulo {
+    font-size: 12px;
+    color: var(--color-text-muted, #7a8e9e);
+    margin: 0 0 12px 0;
+    font-style: italic;
+}
+
+.picos-resumo th,
+.picos-resumo td {
+    padding: 8px 12px;
+}
+
+.picos-resumo tr.row-total td {
+    background-color: #f1f5f9;
+    border-top: 2px solid var(--color-primary, #2c6e9e);
+}
+
+/* ================================================================
+   IMPRESSÃO — ajustes do resumo
+   ================================================================ */
+@media print {
+    .picos-destaque {
+        padding: 8px 12px;
+        gap: 16px;
+        margin-bottom: 8px;
+    }
+    .picos-destaque-valor {
+        font-size: 13pt;
+    }
+    .picos-destaque-label {
+        font-size: 7pt;
+    }
+    .picos-subtitulo {
+        font-size: 8pt;
+        margin-bottom: 6px;
+    }
+    .picos-resumo th,
+    .picos-resumo td {
+        padding: 4px 8px;
+        font-size: 8pt;
+    }
+}
+
+/* Pressão de referência: aparência de campo obrigatório */
+#pressaoTrabalho.input-invalid {
+    border-color: #d07070;
+    background-color: #fff8f8;
+}
+
+#pressaoTrabalho.input-invalid::placeholder {
+    color: #d07070;
+}
+
+/* ================================================================
+   RESUMO DE PICOS — tudo via classes (CSP-safe)
+   ================================================================ */
+.picos-destaque {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    background-color: #f1f5f9;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    border-left: 4px solid var(--color-primary, #2c6e9e);
+}
+
+.picos-destaque-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 100px;
+}
+
+.picos-destaque-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--color-text-muted, #7a8e9e);
+    font-weight: bold;
+}
+
+.picos-destaque-valor {
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--color-primary, #2c6e9e);
+}
+
+.picos-destaque-valor.cor-comum {
+    color: #c07070;
+}
+
+.picos-subtitulo {
+    font-size: 12px;
+    color: var(--color-text-muted, #7a8e9e);
+    margin: 0 0 12px 0;
+    font-style: italic;
+}
+
+.picos-resumo th,
+.picos-resumo td {
+    padding: 8px 12px;
+}
+
+.picos-resumo tr.row-total td {
+    background-color: #f1f5f9;
+    border-top: 2px solid var(--color-primary, #2c6e9e);
+}
+
+.picos-resumo .col-center { text-align: center; }
+.picos-resumo .col-barra  { width: 35%; }
+
+/* ---- Bolinha do resumo ---- */
+.picos-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+.picos-dot.dot-5  { background-color: #c07070; border: 2px solid #a05050; }
+.picos-dot.dot-10 { background-color: #3b82f6; border: 2px solid #1e40af; }
+.picos-dot.dot-20 { background-color: #e67e22; border: 2px solid #a04000; }
+.picos-dot.dot-30 { background-color: #8e44ad; border: 2px solid #5b2c6f; }
+.picos-dot.dot-35 { background-color: #f9c022; border: 2px solid #b8860b; }
+.picos-dot.dot-40 { background-color: #2c9e6e; border: 2px solid #1a6e4a; }
+.picos-dot.dot-50 { background-color: #795548; border: 2px solid #4e342e; }
+.picos-dot.dot-60 { background-color: #212121; border: 2px solid #000000; }
+.picos-dot.dot-80 { background-color: #e91e63; border: 2px solid #ad1457; }
+
+/* ---- Barra do resumo (cor) ---- */
+.picos-barra {
+    height: 14px;
+    border-radius: 3px;
+    min-width: 3px;
+}
+
+.picos-barra.bar-5  { background-color: #c07070; }
+.picos-barra.bar-10 { background-color: #3b82f6; }
+.picos-barra.bar-20 { background-color: #e67e22; }
+.picos-barra.bar-30 { background-color: #8e44ad; }
+.picos-barra.bar-35 { background-color: #f9c022; }
+.picos-barra.bar-40 { background-color: #2c9e6e; }
+.picos-barra.bar-50 { background-color: #795548; }
+.picos-barra.bar-60 { background-color: #212121; }
+.picos-barra.bar-80 { background-color: #e91e63; }
+
+/* ---- Barra do resumo (largura) — w-0 até w-100 ---- */
+.w-0   { width: 0%; }
+.w-1   { width: 1%; }
+.w-2   { width: 2%; }
+.w-3   { width: 3%; }
+.w-4   { width: 4%; }
+.w-5   { width: 5%; }
+.w-6   { width: 6%; }
+.w-7   { width: 7%; }
+.w-8   { width: 8%; }
+.w-9   { width: 9%; }
+.w-10  { width: 10%; }
+.w-11  { width: 11%; }
+.w-12  { width: 12%; }
+.w-13  { width: 13%; }
+.w-14  { width: 14%; }
+.w-15  { width: 15%; }
+.w-16  { width: 16%; }
+.w-17  { width: 17%; }
+.w-18  { width: 18%; }
+.w-19  { width: 19%; }
+.w-20  { width: 20%; }
+.w-21  { width: 21%; }
+.w-22  { width: 22%; }
+.w-23  { width: 23%; }
+.w-24  { width: 24%; }
+.w-25  { width: 25%; }
+.w-26  { width: 26%; }
+.w-27  { width: 27%; }
+.w-28  { width: 28%; }
+.w-29  { width: 29%; }
+.w-30  { width: 30%; }
+.w-31  { width: 31%; }
+.w-32  { width: 32%; }
+.w-33  { width: 33%; }
+.w-34  { width: 34%; }
+.w-35  { width: 35%; }
+.w-36  { width: 36%; }
+.w-37  { width: 37%; }
+.w-38  { width: 38%; }
+.w-39  { width: 39%; }
+.w-40  { width: 40%; }
+.w-41  { width: 41%; }
+.w-42  { width: 42%; }
+.w-43  { width: 43%; }
+.w-44  { width: 44%; }
+.w-45  { width: 45%; }
+.w-46  { width: 46%; }
+.w-47  { width: 47%; }
+.w-48  { width: 48%; }
+.w-49  { width: 49%; }
+.w-50  { width: 50%; }
+.w-51  { width: 51%; }
+.w-52  { width: 52%; }
+.w-53  { width: 53%; }
+.w-54  { width: 54%; }
+.w-55  { width: 55%; }
+.w-56  { width: 56%; }
+.w-57  { width: 57%; }
+.w-58  { width: 58%; }
+.w-59  { width: 59%; }
+.w-60  { width: 60%; }
+.w-61  { width: 61%; }
+.w-62  { width: 62%; }
+.w-63  { width: 63%; }
+.w-64  { width: 64%; }
+.w-65  { width: 65%; }
+.w-66  { width: 66%; }
+.w-67  { width: 67%; }
+.w-68  { width: 68%; }
+.w-69  { width: 69%; }
+.w-70  { width: 70%; }
+.w-71  { width: 71%; }
+.w-72  { width: 72%; }
+.w-73  { width: 73%; }
+.w-74  { width: 74%; }
+.w-75  { width: 75%; }
+.w-76  { width: 76%; }
+.w-77  { width: 77%; }
+.w-78  { width: 78%; }
+.w-79  { width: 79%; }
+.w-80  { width: 80%; }
+.w-81  { width: 81%; }
+.w-82  { width: 82%; }
+.w-83  { width: 83%; }
+.w-84  { width: 84%; }
+.w-85  { width: 85%; }
+.w-86  { width: 86%; }
+.w-87  { width: 87%; }
+.w-88  { width: 88%; }
+.w-89  { width: 89%; }
+.w-90  { width: 90%; }
+.w-91  { width: 91%; }
+.w-92  { width: 92%; }
+.w-93  { width: 93%; }
+.w-94  { width: 94%; }
+.w-95  { width: 95%; }
+.w-96  { width: 96%; }
+.w-97  { width: 97%; }
+.w-98  { width: 98%; }
+.w-99  { width: 99%; }
+.w-100 { width: 100%; }
+
+/* ================================================================
+   IMPRESSÃO — resumo
+   ================================================================ */
+@media print {
+    .picos-destaque {
+        padding: 8px 12px;
+        gap: 16px;
+        margin-bottom: 8px;
+    }
+    .picos-destaque-valor { font-size: 13pt; }
+    .picos-destaque-label { font-size: 7pt; }
+    .picos-subtitulo { font-size: 8pt; margin-bottom: 6px; }
+    .picos-resumo th,
+    .picos-resumo td { padding: 4px 8px; font-size: 8pt; }
+}

@@ -6,6 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Data Logger - Análise de Pressão</title>
 
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#2c6e9e">
+    <link rel="apple-touch-icon" href="./icons/icon-192.png">
+
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Data Logger">
+
     <!--
         CSP máxima: apenas recursos do próprio domínio.
         Nenhuma dependência externa, nenhum CDN, nenhuma inline.
@@ -18,8 +28,9 @@
         connect-src 'self';
         base-uri 'none';
         form-action 'none';
-        frame-ancestors 'none';
         object-src 'none';
+        worker-src 'self';
+        manifest-src 'self';
     ">
 
     <meta name="referrer" content="no-referrer">
@@ -81,7 +92,7 @@
                 </div>
                 <div class="form-group-small">
                     <label for="pressaoTrabalho">Pressão de Trabalho (100%)</label>
-                    <input type="number" id="pressaoTrabalho" step="0.001" placeholder="Ex: 0.350" value="0.350">
+                    <input type="number" id="pressaoTrabalho" step="0.001" placeholder="Ex: 0.350">
                     <div class="pressao-info">Valor de referência para calcular diferença percentual dos picos</div>
                 </div>
             </div>
@@ -124,7 +135,7 @@
 
             <div class="pressao-trabalho-destaque" id="pressaoDestaque">
                 <div class="label">⚙️ PRESSÃO DE TRABALHO (100%)</div>
-                <div class="value" id="pressaoDestaqueValor">0.350 Bar</div>
+                <div class="value" id="pressaoDestaqueValor">— Bar</div>
             </div>
 
             <div class="form-row">
@@ -208,13 +219,37 @@
             <div class="legend-period">
                 📅 Período: <span id="periodoInicio">—</span> até <span id="periodoFim">—</span>
             </div>
-            <div class="legend-peak">
-                <div class="legend-peak-color"></div>
-                <span>🔴 Picos de Pressão (&gt;5%)</span>
-            </div>
-            <div class="legend-stable">
-                <div class="legend-stable-color"></div>
-                <span>🟢 Início de Estabilidade</span>
+            <div class="legend-peaks">
+                <div class="legend-peak-item">
+                    <span class="legend-dot p-5"></span> 5%
+                </div>
+                <div class="legend-peak-item">
+                    <span class="legend-dot p-10"></span> 10%
+                </div>
+                <div class="legend-peak-item">
+                    <span class="legend-dot p-20"></span> 20%
+                </div>
+                <div class="legend-peak-item">
+                    <span class="legend-dot p-30"></span> 30%
+                </div>
+                <div class="legend-peak-item">
+                    <span class="legend-dot p-35"></span> 35%
+                </div>
+                <div class="legend-peak-item">
+                    <span class="legend-dot p-40"></span> 40%
+                </div>
+                <div class="legend-peak-item">
+                    <span class="legend-dot p-50"></span> 50%
+                </div>
+                <div class="legend-peak-item">
+                    <span class="legend-dot p-60"></span> 60%
+                </div>
+                <div class="legend-peak-item">
+                    <span class="legend-dot p-80"></span> 80%
+                </div>
+                <div class="legend-peak-item">
+                    <span class="legend-dot stable"></span> Estabilidade
+                </div>
             </div>
         </div>
 
@@ -224,7 +259,7 @@
         <!-- ============ TABELA DE PICOS ============ -->
         <div class="picos-table" id="picosTableContainer" hidden>
             <h4>
-                📋 Lista Completa de Picos de Pressão (Ordem de Tempo)
+                📊 Resumo de Picos por Faixa
                 <span class="badge" id="picosCountBadge">0 picos</span>
             </h4>
             <div id="picosTable"></div>
@@ -232,7 +267,7 @@
 
         <footer class="footer">
             <div class="footer-credit">
-                <div>Processamento local | Picos &gt; 5% | Estabilidade detectada</div>
+                <div>Processamento local | Picos &gt; 2% | Estabilidade detectada</div>
                 <div class="footer-author">by Adriano Monteiro</div>
             </div>
         </footer>

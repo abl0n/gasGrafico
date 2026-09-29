@@ -1,0 +1,40 @@
+{
+    
+    "id": "/gasGrafico/",
+    "name": "Data Logger - Análise de Pressão",
+    "short_name": "Data Logger",
+    "description": "Análise de pressão com detecção de picos e estabilidade. 100% offline.",
+    "start_url": "./index.html",
+    "scope": "./",
+    "display": "standalone",
+    "orientation": "any",
+    "background_color": "#f0f4f8",
+    "theme_color": "#2c6e9e",
+    "lang": "pt-BR",
+    "icons": [
+{
+    "src": "./icons/icon-192.png",
+    "sizes": "192x192",
+    "type": "image/png",
+    "purpose": "any"
+},
+{
+    "src": "./icons/icon-512.png",
+    "sizes": "512x512",
+    "type": "image/png",
+    "purpose": "any"
+},
+{
+    "src": "./icons/icon-192.png",
+    "sizes": "192x192",
+    "type": "image/png",
+    "purpose": "maskable"
+},
+{
+    "src": "./icons/icon-512.png",
+    "sizes": "512x512",
+    "type": "image/png",
+    "purpose": "maskable"
+}
+    ]
+}

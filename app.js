@@ -3,9 +3,17 @@
 /* ================================================================
  * DATA LOGGER - ANÁLISE DE PRESSÃO
  * Zero dependências externas.
- * Módulos: State, Utils, CSVParser, Detector, StatusClassifier,
- *          Responsaveis, Logo, Relatorio, CanvasChart, Tabela,
- *          Processador, App
+ *
+ * Referência = pressão de trabalho (100%)
+ *
+ * Marcadores no gráfico (apenas bolinhas, cor por magnitude):
+ *   🔴 Vermelho  5-9%    🔵 Azul      10-19%
+ *   🟠 Laranja   20-29%  🟣 Roxo      30-34%
+ *   🟡 Amarelo   35-39%  🟢 Verde     40-49%
+ *   🟤 Marrom    50-59%  ⚫ Preto     60-79%
+ *   💗 Magenta   80%+
+ *
+ * Estabilidade é marcada em verde-escuro (losango).
  * ================================================================ */
 
 /* ----------------------------------------------------------------
@@ -37,224 +45,271 @@ const Utils = {
     getPressaoReferencia() {
         const el = document.getElementById('pressaoTrabalho');
         const valor = parseFloat(el.value);
-        return Number.isFinite(valor) && valor > 0 ? valor : 0.350;
+        return Number.isFinite(valor) && valor > 0 ? valor : null;
     },
 
-    calcularDiferencaPercentual(valorPico, pressaoReferencia) {
-        const valor = Number(valorPico);
+    calcularDiferencaPercentual(valor, pressaoReferencia) {
+        const v = Number(valor);
         const ref = Number(pressaoReferencia);
-        if (!Number.isFinite(valor) || !Number.isFinite(ref) || ref <= 0) return 0;
-        return ((valor - ref) / ref) * 100;
+        if (!Number.isFinite(v) || !Number.isFinite(ref) || ref <= 0) return 0;
+        return ((v - ref) / ref) * 100;
+    },
+
+    parseTimeToSeconds(str) {
+        if (!str) return null;
+        const m = String(str).match(/(\d{2}):(\d{2}):(\d{2})(?:[.,](\d{1,3}))?/);
+        if (!m) return null;
+        const h = parseInt(m[1], 10);
+        const min = parseInt(m[2], 10);
+        const sec = parseInt(m[3], 10);
+        const ms = m[4] ? parseInt(m[4].padEnd(3, '0'), 10) : 0;
+        return h * 3600 + min * 60 + sec + ms / 1000;
+    },
+
+    formatDuracao(seg) {
+        const s = Math.round(seg);
+        if (s < 60) return `${s}s`;
+        const min = Math.floor(s / 60);
+        const resto = s % 60;
+        return `${min}min ${resto}s`;
     }
 };
 
 /* ----------------------------------------------------------------
- * PARSER CSV (substitui PapaParse)
- * Suporta: vírgula, ponto-e-vírgula, tab, pipe como delimitadores
- * Trata: aspas duplas com escape "" e quebras de linha dentro de campo
+ * PALETA DE PICOS — cor por magnitude (%)
+ * ---------------------------------------------------------------- */
+const PEAK_PALETTE = [
+    { min: 80, fill: '#e91e63', border: '#ad1457', label: '≥ 80%' },
+    { min: 60, fill: '#212121', border: '#000000', label: '≥ 60%' },
+    { min: 50, fill: '#795548', border: '#4e342e', label: '≥ 50%' },
+    { min: 40, fill: '#2c9e6e', border: '#1a6e4a', label: '≥ 40%' },
+    { min: 35, fill: '#f9c022', border: '#b8860b', label: '≥ 35%' },
+    { min: 30, fill: '#8e44ad', border: '#5b2c6f', label: '≥ 30%' },
+    { min: 20, fill: '#e67e22', border: '#a04000', label: '≥ 20%' },
+    { min: 10, fill: '#3b82f6', border: '#1e40af', label: '≥ 10%' },
+    { min: 5,  fill: '#c07070', border: '#a05050', label: '5-9%' }
+];
+
+const PEAK_COLORS = {
+    classificacao(percentual) {
+        const abs = Math.abs(percentual);
+        for (const p of PEAK_PALETTE) {
+            if (abs >= p.min) return { fill: p.fill, border: p.border, label: p.label };
+        }
+        return { fill: '#c07070', border: '#a05050', label: '< 5%' };
+    }
+};
+
+/* ----------------------------------------------------------------
+ * PARSER CSV (nativo, sem dependências)
  * ---------------------------------------------------------------- */
 const CSVParser = {
-    /**
-     * Detecta o delimitador mais provável olhando a primeira linha.
-     */
     detectDelimiter(text) {
         const firstLine = text.split(/\r?\n/, 1)[0] || '';
         const candidates = [',', ';', '\t', '|'];
-        let best = ',';
-        let bestCount = -1;
+        let best = ',', bestCount = -1;
         for (const d of candidates) {
             const count = firstLine.split(d).length - 1;
-            if (count > bestCount) {
-                bestCount = count;
-                best = d;
-            }
+            if (count > bestCount) { bestCount = count; best = d; }
         }
         return bestCount > 0 ? best : ',';
     },
 
-    /**
-     * Parse completo do CSV em matriz de strings.
-     * Retorna array de arrays: [["h1","h2"], ["v1","v2"], ...]
-     */
     parse(text, delimiter) {
         const delim = delimiter || this.detectDelimiter(text);
         const rows = [];
-        let row = [];
-        let field = '';
-        let inQuotes = false;
-        let i = 0;
+        let row = [], field = '', inQuotes = false, i = 0;
         const len = text.length;
 
-        // BOM UTF-8: descarta
         if (len > 0 && text.charCodeAt(0) === 0xFEFF) i = 1;
 
         while (i < len) {
             const ch = text[i];
-
             if (inQuotes) {
                 if (ch === '"') {
-                    if (text[i + 1] === '"') {
-                        // aspas escapada
-                        field += '"';
-                        i += 2;
-                    } else {
-                        inQuotes = false;
-                        i++;
-                    }
-                } else {
-                    field += ch;
-                    i++;
-                }
+                    if (text[i + 1] === '"') { field += '"'; i += 2; }
+                    else { inQuotes = false; i++; }
+                } else { field += ch; i++; }
             } else {
-                if (ch === '"') {
-                    inQuotes = true;
-                    i++;
-                } else if (ch === delim) {
-                    row.push(field);
-                    field = '';
-                    i++;
-                } else if (ch === '\r') {
-                    // ignora \r (Windows) — só \n quebra linha
-                    i++;
-                } else if (ch === '\n') {
-                    row.push(field);
-                    field = '';
+                if (ch === '"') { inQuotes = true; i++; }
+                else if (ch === delim) { row.push(field); field = ''; i++; }
+                else if (ch === '\r') { i++; }
+                else if (ch === '\n') {
+                    row.push(field); field = '';
                     if (row.length > 1 || row[0] !== '') rows.push(row);
-                    row = [];
-                    i++;
-                } else {
-                    field += ch;
-                    i++;
-                }
+                    row = []; i++;
+                } else { field += ch; i++; }
             }
         }
-        // último campo / última linha
         row.push(field);
         if (row.length > 1 || row[0] !== '') rows.push(row);
-
         return rows;
     }
 };
 
 /* ----------------------------------------------------------------
- * DETECÇÃO DE PICOS E ESTABILIDADE
+ * DETECTOR — Picos e Estabilidades
  * ---------------------------------------------------------------- */
 const Detector = {
-    detectPeaks(pressures) {
-        if (!Array.isArray(pressures) || pressures.length < 5) return [];
+    // Picos
+    PICO_MIN_WAVE_PCT: 5,       // altura mínima da "onda"
+    PICO_MIN_DISTANCE: 5,       // distância mínima entre picos (pontos)
 
-        const HALF_WINDOW = 5;
-        const MIN_VARIATION = 5;
-        const MIN_DISTANCE = 5;
-        const candidates = [];
+    // Estabilidade
+    ESTAB_DURACAO_SEG: 180,     // 3 minutos
+    ESTAB_TOLERANCIA_PCT: 2,    // ±2%
+    ESTAB_MIN_GAP_SEG: 60,      // 1 min entre marcações
 
-        for (let i = 2; i < pressures.length - 2; i++) {
-            const current = Number(pressures[i]);
-            const prev1 = Number(pressures[i - 1]);
-            const next1 = Number(pressures[i + 1]);
+    /* --------------------------------------------------------------
+     * PICOS — máximos/mínimos locais (eletrocardiograma)
+     * -------------------------------------------------------------- */
+    detectPeaks(pressures, pressaoRef) {
+        if (!Array.isArray(pressures) || pressures.length < 3) return [];
+        if (!Number.isFinite(pressaoRef) || pressaoRef <= 0) return [];
 
-            if (!Number.isFinite(current) || !Number.isFinite(prev1) || !Number.isFinite(next1)) continue;
-            if (!(current > prev1 && current >= next1)) continue;
+        const minWave = (this.PICO_MIN_WAVE_PCT / 100) * pressaoRef;
+        const minDist = this.PICO_MIN_DISTANCE;
 
-            const start = Math.max(0, i - HALF_WINDOW);
-            const end = Math.min(pressures.length, i + HALF_WINDOW + 1);
+        // Encontra extremos locais
+        const extremos = [];
+        for (let i = 1; i < pressures.length - 1; i++) {
+            const a = Number(pressures[i - 1]);
+            const b = Number(pressures[i]);
+            const c = Number(pressures[i + 1]);
+            if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) continue;
 
-            const neighbors = [];
-            for (let j = start; j < end; j++) {
-                if (j !== i && Number.isFinite(Number(pressures[j]))) {
-                    neighbors.push(Number(pressures[j]));
-                }
-            }
-            if (!neighbors.length) continue;
-
-            const localAvg = neighbors.reduce((s, v) => s + v, 0) / neighbors.length;
-            if (!(localAvg > 0)) continue;
-
-            const variacaoPercentual = ((current - localAvg) / localAvg) * 100;
-            if (variacaoPercentual > MIN_VARIATION) {
-                candidates.push({ index: i, value: current, variacaoPercentual, localAvg });
-            }
+            if (b > a && b >= c) extremos.push({ index: i, value: b, tipo: 'max' });
+            else if (b < a && b <= c) extremos.push({ index: i, value: b, tipo: 'min' });
         }
 
-        const filtered = [];
-        for (const c of candidates) {
-            const last = filtered[filtered.length - 1];
-            if (!last || c.index - last.index > MIN_DISTANCE) {
-                filtered.push(c);
-            } else if (c.value > last.value) {
-                filtered[filtered.length - 1] = c;
+        // Filtra por alternância + altura mínima
+        const picos = [];
+        let ultimo = null;
+        for (const e of extremos) {
+            if (!ultimo) { ultimo = e; continue; }
+            if (e.tipo === ultimo.tipo) {
+                if (e.tipo === 'max' && e.value > ultimo.value) ultimo = e;
+                else if (e.tipo === 'min' && e.value < ultimo.value) ultimo = e;
+                continue;
+            }
+            const altura = Math.abs(e.value - ultimo.value);
+            if (altura >= minWave) {
+                const dpA = Math.abs(ultimo.value - pressaoRef);
+                const dpB = Math.abs(e.value - pressaoRef);
+                const escolhido = dpA >= dpB ? ultimo : e;
+                picos.push({
+                    index: escolhido.index,
+                    value: escolhido.value,
+                    tipo: escolhido.tipo,
+                    variacaoPercentual: ((escolhido.value - pressaoRef) / pressaoRef) * 100
+                });
+            }
+            ultimo = e;
+        }
+
+        // Distância mínima
+        const filtrados = [];
+        for (const p of picos) {
+            const last = filtrados[filtrados.length - 1];
+            if (!last || p.index - last.index >= minDist) {
+                filtrados.push(p);
+            } else if (Math.abs(p.variacaoPercentual) > Math.abs(last.variacaoPercentual)) {
+                filtrados[filtrados.length - 1] = p;
             }
         }
-        return filtered;
+        return filtrados;
     },
 
-    detectStabilityStarts(pressures, times) {
-        const stablePoints = [];
-        const THRESHOLD = 2.0;
+    /* --------------------------------------------------------------
+     * ESTABILIDADE — marca INÍCIO e FIM de cada trecho estável
+     * Variação tolerada: ±ESTAB_TOLERANCIA_PCT da referência
+     * Duração mínima: ESTAB_DURACAO_SEG segundos
+     * -------------------------------------------------------------- */
+    detectStabilityStarts(pressures, times, pressaoRef) {
+        if (!Array.isArray(pressures) || pressures.length < 5) return [];
+        if (!Number.isFinite(pressaoRef) || pressaoRef <= 0) return [];
 
-        for (let i = 2; i < pressures.length - 2; i++) {
-            const window = pressures.slice(i - 2, i + 3);
-            const maxVal = Math.max(...window);
-            const minVal = Math.min(...window);
-            const variacao = maxVal > 0 ? ((maxVal - minVal) / maxVal) * 100 : 0;
+        const tol = this.ESTAB_TOLERANCIA_PCT / 100;
+        const minSeg = this.ESTAB_DURACAO_SEG;
+        const minGapSeg = this.ESTAB_MIN_GAP_SEG;
 
-            if (variacao <= THRESHOLD) {
-                const last = stablePoints[stablePoints.length - 1];
-                if (!last || (i - last.index) > 10) {
-                    stablePoints.push({
-                        index: i,
-                        time: times[i],
-                        value: pressures[i],
-                        type: 'início de estabilidade'
-                    });
-                }
+        const tempo = times.map(t => Utils.parseTimeToSeconds(t));
+        const dentro = (v) => Number.isFinite(v) && Math.abs(v - pressaoRef) / pressaoRef <= tol;
+
+        // Segmenta em regiões contíguas dentro da faixa
+        const regioes = [];
+        let inicio = -1;
+        for (let i = 0; i < pressures.length; i++) {
+            if (dentro(Number(pressures[i]))) {
+                if (inicio === -1) inicio = i;
+            } else {
+                if (inicio !== -1) { regioes.push({ inicio, fim: i - 1 }); inicio = -1; }
             }
         }
-        return stablePoints;
-    }
+        if (inicio !== -1) regioes.push({ inicio, fim: pressures.length - 1 });
+
+        // Cada região estável gera 2 marcações: início e fim
+        const result = [];
+        let ultimoT = -Infinity;
+
+        for (const r of regioes) {
+            const tIni = tempo[r.inicio];
+            const tFim = tempo[r.fim];
+            let dur = 0;
+            if (Number.isFinite(tIni) && Number.isFinite(tFim) && tFim >= tIni) dur = tFim - tIni;
+            else dur = r.fim - r.inicio;
+
+            if (dur < minSeg) continue;
+            if (Number.isFinite(tIni) && tIni - ultimoT < minGapSeg) continue;
+
+            // ---- Marcador de INÍCIO ----
+            result.push({
+                index: r.inicio,
+                indexFim: r.fim,
+                time: times[r.inicio],
+                timeFim: times[r.fim],
+                value: pressures[r.inicio],
+                duracaoSegundos: dur,
+                papel: 'inicio'
+            });
+
+            // ---- Marcador de FIM ----
+            // Só marca o fim se o trecho for razoavelmente longo
+            // (evita duplicar em trechos muito curtos que só bateram o mínimo)
+            if (dur >= minSeg * 1.2 && r.fim > r.inicio + 5) {
+                result.push({
+                    index: r.fim,
+                    indexFim: r.fim,
+                    time: times[r.fim],
+                    timeFim: times[r.fim],
+                    value: pressures[r.fim],
+                    duracaoSegundos: dur,
+                    papel: 'fim'
+                });
+            }
+
+            ultimoT = Number.isFinite(tIni) ? tIni : r.inicio;
+        }
+        return result;
+    },
 };
 
 /* ----------------------------------------------------------------
- * CLASSIFICADOR DE STATUS
+ * STATUS CLASSIFIER (badges na tabela)
  * ---------------------------------------------------------------- */
 const StatusClassifier = {
-    HIGH_LEVELS: [
-        [100, 'status-alto-100', 'ALTO 100%+'],
-        [90, 'status-alto-90', 'ALTO 90%'],
-        [80, 'status-alto-80', 'ALTO 80%'],
-        [70, 'status-alto-70', 'ALTO 70%'],
-        [60, 'status-alto-60', 'ALTO 60%'],
-        [50, 'status-alto-50', 'ALTO 50%'],
-        [40, 'status-alto-40', 'ALTO 40%'],
-        [30, 'status-alto-30', 'ALTO 30%'],
-        [20, 'status-alto-20', 'ALTO 20%'],
-        [10, 'status-alto-10', 'ALTO 10%'],
-        [5, 'status-alto-10', 'ALTO 5%']
-    ],
-    LOW_LEVELS: [
-        [100, 'status-baixo-100', 'BAIXO 100%+'],
-        [90, 'status-baixo-90', 'BAIXO 90%'],
-        [80, 'status-baixo-80', 'BAIXO 80%'],
-        [70, 'status-baixo-70', 'BAIXO 70%'],
-        [60, 'status-baixo-60', 'BAIXO 60%'],
-        [50, 'status-baixo-50', 'BAIXO 50%'],
-        [40, 'status-baixo-40', 'BAIXO 40%'],
-        [30, 'status-baixo-30', 'BAIXO 30%'],
-        [20, 'status-baixo-20', 'BAIXO 20%'],
-        [10, 'status-baixo-10', 'BAIXO 10%'],
-        [5, 'status-baixo-10', 'BAIXO 5%']
-    ],
-
     get(percentual) {
-        if (percentual >= 5) {
-            const m = this.HIGH_LEVELS.find(([lim]) => percentual >= lim);
-            return { class: m[1], text: `🔴 ${m[2]}` };
-        }
-        if (percentual <= -5) {
-            const abs = Math.abs(percentual);
-            const m = this.LOW_LEVELS.find(([lim]) => abs >= lim);
-            return { class: m[1], text: `📉 ${m[2]}` };
-        }
+        const abs = Math.abs(percentual);
+        const sinal = percentual >= 0 ? '🔴 ALTO' : '📉 BAIXO';
+        if (abs >= 80) return { class: 'status-alto-100', text: `${sinal} ${Math.round(abs)}%` };
+        if (abs >= 60) return { class: 'status-alto-80',  text: `${sinal} ${Math.round(abs)}%` };
+        if (abs >= 50) return { class: 'status-alto-60',  text: `${sinal} ${Math.round(abs)}%` };
+        if (abs >= 40) return { class: 'status-alto-50',  text: `${sinal} ${Math.round(abs)}%` };
+        if (abs >= 35) return { class: 'status-alto-40',  text: `${sinal} ${Math.round(abs)}%` };
+        if (abs >= 30) return { class: 'status-alto-30',  text: `${sinal} ${Math.round(abs)}%` };
+        if (abs >= 20) return { class: 'status-alto-20',  text: `${sinal} ${Math.round(abs)}%` };
+        if (abs >= 10) return { class: 'status-alto-10',  text: `${sinal} ${Math.round(abs)}%` };
+        if (abs >= 5)  return { class: 'status-alto-10',  text: `${sinal} ${Math.round(abs)}%` };
         return { class: 'status-normal', text: '✓ NORMAL' };
     }
 };
@@ -263,9 +318,7 @@ const StatusClassifier = {
  * RESPONSÁVEIS
  * ---------------------------------------------------------------- */
 const Responsaveis = {
-    grid: null,
-    reportGrid: null,
-    reportSection: null,
+    grid: null, reportGrid: null, reportSection: null,
 
     init() {
         this.grid = document.getElementById('responsaveisGrid');
@@ -279,22 +332,16 @@ const Responsaveis = {
             const btn = e.target.closest('.btn-remove-responsavel');
             if (!btn) return;
             const card = btn.closest('.responsavel-card');
-            if (card) {
-                card.remove();
-                this.atualizarRelatorio();
-            }
+            if (card) { card.remove(); this.atualizarRelatorio(); }
         });
 
         this.grid.addEventListener('input', () => this.atualizarRelatorio());
-
         this.adicionar();
     },
 
     adicionar() {
-        const id = State.nextResponsavelId++;
         const card = document.createElement('div');
         card.className = 'responsavel-card';
-        card.dataset.id = String(id);
 
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -313,12 +360,10 @@ const Responsaveis = {
         for (const f of fields) {
             const wrap = document.createElement('div');
             wrap.className = 'responsavel-field';
-
             const input = document.createElement('input');
             input.type = 'text';
             input.className = f.cls;
             input.placeholder = f.placeholder;
-
             wrap.appendChild(input);
             row.appendChild(wrap);
         }
@@ -340,32 +385,23 @@ const Responsaveis = {
 
     atualizarRelatorio() {
         const lista = this.coletar();
-
         if (lista.length === 0) {
             this.reportSection.hidden = true;
             this.reportGrid.replaceChildren();
             return;
         }
-
         this.reportSection.hidden = false;
 
         const frag = document.createDocumentFragment();
         for (const r of lista) {
             const card = document.createElement('div');
             card.className = 'responsavel-report-card';
-
             const nome = document.createElement('div');
-            nome.className = 'nome';
-            nome.textContent = r.nome || '—';
-
+            nome.className = 'nome'; nome.textContent = r.nome || '—';
             const cargo = document.createElement('div');
-            cargo.className = 'cargo';
-            cargo.textContent = r.cargo || '—';
-
+            cargo.className = 'cargo'; cargo.textContent = r.cargo || '—';
             const reg = document.createElement('div');
-            reg.className = 'registro';
-            reg.textContent = r.registro || '—';
-
+            reg.className = 'registro'; reg.textContent = r.registro || '—';
             card.append(nome, cargo, reg);
             frag.appendChild(card);
         }
@@ -387,39 +423,31 @@ const Logo = {
         this.reportLogo = document.getElementById('reportLogo');
 
         this.btnAdd.addEventListener('click', () => this.input.click());
-
         this.btnRemove.addEventListener('click', () => {
             State.logoDataURL = null;
             this.input.value = '';
             this.render();
         });
-
         this.input.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file || !file.type.startsWith('image/')) return;
-
             if (file.size > this.MAX_SIZE) {
                 alert(`Logo muito grande. Máximo: ${this.MAX_SIZE / 1024 / 1024} MB`);
                 this.input.value = '';
                 return;
             }
-
             const reader = new FileReader();
-            reader.onload = (ev) => {
-                State.logoDataURL = ev.target.result;
-                this.render();
-            };
+            reader.onload = (ev) => { State.logoDataURL = ev.target.result; this.render(); };
             reader.onerror = () => alert('Erro ao ler a imagem.');
             reader.readAsDataURL(file);
         });
-
         this.render();
     },
 
     render() {
         if (State.logoDataURL) {
-            this.preview.replaceChildren(this._buildImg());
-            this.reportLogo.replaceChildren(this._buildImg());
+            this.preview.replaceChildren(this._img());
+            this.reportLogo.replaceChildren(this._img());
             this.btnRemove.hidden = false;
         } else {
             const ph = document.createElement('div');
@@ -431,7 +459,7 @@ const Logo = {
         }
     },
 
-    _buildImg() {
+    _img() {
         const img = document.createElement('img');
         img.src = State.logoDataURL;
         img.alt = 'Logo';
@@ -466,14 +494,27 @@ const Relatorio = {
         this.els.pressao.addEventListener('input', () => this.atualizarPressaoDestaque());
         this.els.obs.addEventListener('input', () => this.atualizarObservacoes());
 
-        [this.els.equipamento, this.els.endereco, this.els.pressao].forEach(el => {
+
+        [this.els.equipamento, this.els.endereco].forEach(el => {
             el.addEventListener('input', () => this.atualizarCabecalho());
         });
+
+        // Pressão de trabalho: ao mudar, atualiza destaque + cabeçalho
+        // Se houver dados processados, reanalisa automaticamente
+        this.els.pressao.addEventListener('input', () => {
+            this.atualizarPressaoDestaque();
+            this.atualizarCabecalho();
+
+            // Reanalisa se já houver dados carregados
+            if (State.dadosProcessados && State.rawPressures.length > 0) {
+                App.reanalisar();
+            }
+        });
+
 
         document.querySelectorAll('input[name="tipoManutencao"]').forEach(el => {
             el.addEventListener('change', () => this.atualizarCabecalho());
         });
-
         document.querySelectorAll('.nivel-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.nivel-btn').forEach(b => b.classList.remove('selected'));
@@ -482,7 +523,6 @@ const Relatorio = {
                 this.atualizarCabecalho();
             });
         });
-
         this.atualizarPressaoDestaque();
     },
 
@@ -492,7 +532,7 @@ const Relatorio = {
         this.els.pressao.classList.toggle('input-invalid', !valido);
         this.els.pressaoDestaque.textContent = valido
             ? `${valor.toFixed(3)} Bar`
-            : 'Valor inválido';
+            : '— Bar';
     },
 
     atualizarObservacoes() {
@@ -515,14 +555,12 @@ const Relatorio = {
         this.els.reportEquip.textContent = this.els.equipamento.value || '—';
         this.els.reportEnd.textContent = this.els.endereco.value || '—';
         this.els.reportPressao.textContent = this.els.pressao.value
-            ? `${this.els.pressao.value} Bar`
-            : '—';
+            ? `${this.els.pressao.value} Bar` : '—';
         this.els.reportClass.textContent = this.getClassificacaoTexto();
 
         const nivel = State.nivelSelecionado;
         this.els.reportNivel.textContent = nivel ? `Nível ${nivel}` : '—';
         this.els.reportNivel.className = `value classification ${nivel || ''}`;
-
         this.els.reportDataHora.textContent = new Date().toLocaleString('pt-BR');
         this.atualizarObservacoes();
     },
@@ -530,31 +568,22 @@ const Relatorio = {
     limpar() {
         this.els.equipamento.value = '';
         this.els.endereco.value = '';
-        this.els.pressao.value = '0.350';
+        this.els.pressao.value = '';
         this.els.obs.value = '';
-
         document.querySelectorAll('input[name="tipoManutencao"]').forEach(el => { el.checked = false; });
         document.querySelectorAll('.nivel-btn').forEach(b => b.classList.remove('selected'));
-
         State.nivelSelecionado = '';
         this.atualizarPressaoDestaque();
         this.atualizarObservacoes();
-
-        if (!State.dadosProcessados) {
-            this.els.reportHeader.hidden = true;
-        } else {
-            this.atualizarCabecalho();
-        }
+        if (!State.dadosProcessados) this.els.reportHeader.hidden = true;
+        else this.atualizarCabecalho();
     }
 };
 
 /* ----------------------------------------------------------------
- * CANVAS CHART (substitui Chart.js)
- * Gráfico de linha + pontos de pico/estabilidade, com tooltip e eixo.
- * Sem dependências externas — desenha direto no <canvas> 2D.
+ * CANVAS CHART — picos coloridos por magnitude + estabilidades verdes
  * ---------------------------------------------------------------- */
 const CanvasChart = {
-    // Margens internas (espaço para eixos)
     PAD: { top: 30, right: 30, bottom: 60, left: 70 },
     COLORS: {
         line: '#6caddc',
@@ -563,24 +592,16 @@ const CanvasChart = {
         axis: '#cbd5e1',
         text: '#5a6e7e',
         textTitle: '#7a8e9e',
-        peak: '#c07070',
-        peakBorder: '#a05050',
-        stable: '#2c9e6e',
-        stableBorder: '#1a6e4a'
+        stable: '#1a6e4a',
+        stableBorder: '#0a3e2a'
     },
 
-    // Referências internas
-    canvas: null,
-    ctx: null,
-    tooltip: null,
-    _boundMove: null,
-    _boundLeave: null,
+    canvas: null, ctx: null, tooltip: null,
+    _boundMove: null, _boundLeave: null, _last: null,
 
     init() {
         this.canvas = document.getElementById('pressureChart');
         this.ctx = this.canvas.getContext('2d');
-
-        // Tooltip: elemento flutuante no <body>
         this.tooltip = document.createElement('div');
         this.tooltip.className = 'chart-tooltip';
         this.tooltip.setAttribute('role', 'tooltip');
@@ -590,7 +611,6 @@ const CanvasChart = {
         this._boundLeave = () => this._hideTooltip();
         this.canvas.addEventListener('mousemove', this._boundMove);
         this.canvas.addEventListener('mouseleave', this._boundLeave);
-        // Touch: mostra tooltip no toque
         this.canvas.addEventListener('touchstart', (e) => {
             if (e.touches.length) this._onMouseMove(e.touches[0]);
         }, { passive: true });
@@ -600,9 +620,6 @@ const CanvasChart = {
         this.canvas.addEventListener('touchend', this._boundLeave);
     },
 
-    /**
-     * Ajusta a resolução interna do canvas ao tamanho exibido (devicePixelRatio).
-     */
     _fitCanvas() {
         const dpr = window.devicePixelRatio || 1;
         const rect = this.canvas.getBoundingClientRect();
@@ -614,18 +631,15 @@ const CanvasChart = {
         return { w: cssW, h: cssH };
     },
 
-    render(times, lineData, peakData, stableData) {
+    render(times, lineData, peaks, stables, refValue) {
         if (!this.canvas || !times.length) return;
-
         const { w, h } = this._fitCanvas();
         const { PAD, COLORS } = this;
         const plotW = w - PAD.left - PAD.right;
         const plotH = h - PAD.top - PAD.bottom;
 
-        // Limpa
         this.ctx.clearRect(0, 0, w, h);
 
-        // Determina limites Y (incluindo pontos de pico/estabilidade)
         const vals = lineData.filter(Number.isFinite);
         let minY = Math.min(...vals);
         let maxY = Math.max(...vals);
@@ -637,14 +651,13 @@ const CanvasChart = {
         const xOf = (i) => PAD.left + (i / (lineData.length - 1)) * plotW;
         const yOf = (v) => PAD.top + plotH - ((v - minY) / (maxY - minY)) * plotH;
 
-        // Grade horizontal + labels Y
+        // Grade
         this.ctx.font = '11px "Segoe UI", sans-serif';
         this.ctx.fillStyle = COLORS.text;
         this.ctx.strokeStyle = COLORS.grid;
         this.ctx.lineWidth = 1;
-        const ySteps = 5;
-        for (let s = 0; s <= ySteps; s++) {
-            const v = minY + ((maxY - minY) * s) / ySteps;
+        for (let s = 0; s <= 5; s++) {
+            const v = minY + ((maxY - minY) * s) / 5;
             const y = yOf(v);
             this.ctx.beginPath();
             this.ctx.moveTo(PAD.left, y);
@@ -663,19 +676,16 @@ const CanvasChart = {
         this.ctx.lineTo(PAD.left + plotW, PAD.top + plotH);
         this.ctx.stroke();
 
-        // Labels X (limita para não poluir)
-        const maxTicks = 10;
-        const step = Math.max(1, Math.ceil(lineData.length / maxTicks));
+        // Labels X
+        const step = Math.max(1, Math.ceil(lineData.length / 10));
         this.ctx.fillStyle = COLORS.text;
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'top';
         for (let i = 0; i < lineData.length; i += step) {
-            const x = xOf(i);
-            const label = Utils.extractTimeOnly(times[i]);
-            this.ctx.fillText(label, x, PAD.top + plotH + 8);
+            this.ctx.fillText(Utils.extractTimeOnly(times[i]), xOf(i), PAD.top + plotH + 8);
         }
 
-        // Título do eixo Y
+        // Título Y
         this.ctx.save();
         this.ctx.translate(18, PAD.top + plotH / 2);
         this.ctx.rotate(-Math.PI / 2);
@@ -686,73 +696,69 @@ const CanvasChart = {
         this.ctx.fillText('Pressão (Bar)', 0, 0);
         this.ctx.restore();
 
-        // Linha + preenchimento
+        // Linha + fill
         this.ctx.beginPath();
         for (let i = 0; i < lineData.length; i++) {
-            const x = xOf(i);
-            const y = yOf(lineData[i]);
-            if (i === 0) this.ctx.moveTo(x, y);
-            else this.ctx.lineTo(x, y);
+            const x = xOf(i), y = yOf(lineData[i]);
+            if (i === 0) this.ctx.moveTo(x, y); else this.ctx.lineTo(x, y);
         }
-        // Fecha área sob a linha
-        const pathEnd = { x: xOf(lineData.length - 1), y: PAD.top + plotH };
-        const pathStart = { x: xOf(0), y: PAD.top + plotH };
-        this.ctx.lineTo(pathEnd.x, pathEnd.y);
-        this.ctx.lineTo(pathStart.x, pathStart.y);
+        this.ctx.lineTo(xOf(lineData.length - 1), PAD.top + plotH);
+        this.ctx.lineTo(xOf(0), PAD.top + plotH);
         this.ctx.closePath();
         this.ctx.fillStyle = COLORS.lineFill;
         this.ctx.fill();
 
-        // Redesenha só a linha por cima
         this.ctx.beginPath();
         for (let i = 0; i < lineData.length; i++) {
-            const x = xOf(i);
-            const y = yOf(lineData[i]);
-            if (i === 0) this.ctx.moveTo(x, y);
-            else this.ctx.lineTo(x, y);
+            const x = xOf(i), y = yOf(lineData[i]);
+            if (i === 0) this.ctx.moveTo(x, y); else this.ctx.lineTo(x, y);
         }
         this.ctx.strokeStyle = COLORS.line;
         this.ctx.lineWidth = 2;
         this.ctx.stroke();
 
-        // Pontos de pico
-        for (let i = 0; i < peakData.length; i++) {
-            if (peakData[i] == null) continue;
-            this._drawMarker(xOf(i), yOf(peakData[i]), COLORS.peak, COLORS.peakBorder, 7, 'circle');
+        // === MARCADORES ===
+        // 1) Picos coloridos por magnitude
+        for (const p of peaks) {
+            const cor = PEAK_COLORS.classificacao(p.variacaoPercentual);
+            this._drawCircle(xOf(p.index), yOf(p.value), cor.fill, cor.border, 7);
         }
 
-        // Pontos de estabilidade (losango)
-        for (let i = 0; i < stableData.length; i++) {
-            if (stableData[i] == null) continue;
-            this._drawMarker(xOf(i), yOf(stableData[i]), COLORS.stable, COLORS.stableBorder, 8, 'diamond');
+        // 2) Estabilidades — losango verde-escuro, sempre por cima
+        for (const s of stables) {
+            this._drawDiamond(xOf(s.index), yOf(s.value), COLORS.stable, COLORS.stableBorder, 7);
         }
 
-        // Guarda dados para uso no tooltip
-        this._last = { times, lineData, peakData, stableData, xOf, yOf, plotW, plotH, PAD };
+        this._last = { times, lineData, peaks, stables, xOf, PAD, plotW, plotH, refValue };
     },
 
-    _drawMarker(x, y, fill, border, size, shape) {
+    _drawCircle(x, y, fill, border, size) {
         const ctx = this.ctx;
         ctx.save();
         ctx.fillStyle = fill;
         ctx.strokeStyle = border;
         ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    },
 
-        if (shape === 'diamond') {
-            ctx.beginPath();
-            ctx.moveTo(x, y - size);
-            ctx.lineTo(x + size, y);
-            ctx.lineTo(x, y + size);
-            ctx.lineTo(x - size, y);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-        }
+    _drawDiamond(x, y, fill, border, size) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.fillStyle = fill;
+        ctx.strokeStyle = border;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x + size, y);
+        ctx.lineTo(x, y + size);
+        ctx.lineTo(x - size, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
         ctx.restore();
     },
 
@@ -761,36 +767,32 @@ const CanvasChart = {
         const rect = this.canvas.getBoundingClientRect();
         const x = evt.clientX - rect.left;
         const y = evt.clientY - rect.top;
-
-        // Encontra o índice mais próximo no eixo X
-        const { times, lineData, peakData, stableData, xOf, PAD, plotW, plotH } = this._last;
+        const { times, lineData, peaks, stables, xOf, PAD, plotW, plotH, refValue } = this._last;
         if (x < PAD.left || x > PAD.left + plotW) return this._hideTooltip();
         if (y < PAD.top || y > PAD.top + plotH) return this._hideTooltip();
 
-        let closest = 0;
-        let minDist = Infinity;
+        let closest = 0, minDist = Infinity;
         for (let i = 0; i < lineData.length; i++) {
             const d = Math.abs(xOf(i) - x);
             if (d < minDist) { minDist = d; closest = i; }
         }
 
-        const pressaoRef = Utils.getPressaoReferencia();
-        const diff = Utils.calcularDiferencaPercentual(lineData[closest], pressaoRef);
+        const diff = Utils.calcularDiferencaPercentual(lineData[closest], refValue);
         const sinal = diff >= 0 ? '+' : '';
 
         let extra = '';
-        if (peakData[closest] != null) {
-            extra = `\n📊 Status: ${StatusClassifier.get(diff).text}`;
-        } else if (stableData[closest] != null) {
-            extra = '\n📍 Início de período estável';
+        const isPeak = peaks.find(p => p.index === closest);
+        const isStable = stables.find(s => s.index === closest);
+        if (isStable) extra = '\n🟢 Início de estabilidade';
+        else if (isPeak) {
+            const cor = PEAK_COLORS.classificacao(isPeak.variacaoPercentual);
+            extra = `\n🔴 Pico ${cor.label}`;
         }
 
         const texto =
             `Pressão: ${lineData[closest].toFixed(4)} Bar\n` +
             `⏱️ ${times[closest]}\n` +
-            `📊 Diferença: ${sinal}${diff.toFixed(2)}%` +
-            extra;
-
+            `📊 Diferença: ${sinal}${diff.toFixed(2)}%` + extra;
         this._showTooltip(evt.clientX, evt.clientY, texto);
     },
 
@@ -801,15 +803,19 @@ const CanvasChart = {
         this.tooltip.classList.add('visible');
     },
 
-    _hideTooltip() {
-        this.tooltip.classList.remove('visible');
-    },
+    _hideTooltip() { this.tooltip.classList.remove('visible'); },
 
     recriar() {
         if (!State.currentChartData) return;
         if (document.getElementById('chartContainer').hidden) return;
-        const d = State.currentChartData;
-        this.render(d.times, d.lineData, d.peakData, d.stableData);
+        const ref = Utils.getPressaoReferencia();
+        this.render(
+            State.currentChartData.times,
+            State.currentChartData.lineData,
+            State.currentPeaks,
+            State.currentStablePoints,
+            ref
+        );
     },
 
     destruir() {
@@ -822,9 +828,12 @@ const CanvasChart = {
 };
 
 /* ----------------------------------------------------------------
- * TABELA DE PICOS + ESTATÍSTICAS
+ * TABELAS
  * ---------------------------------------------------------------- */
 const Tabela = {
+    /* --------------------------------------------------------------
+     * RESUMO DE PICOS POR FAIXA
+     * -------------------------------------------------------------- */
     renderPicos(peaks, times) {
         const badge = document.getElementById('picosCountBadge');
         const container = document.getElementById('picosTableContainer');
@@ -836,17 +845,79 @@ const Tabela = {
         if (peaks.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'empty-state';
-            empty.textContent = '⚠️ Nenhum pico de pressão com variação > 5% foi detectado nos dados.';
+            empty.textContent = '⚠️ Nenhum pico detectado nos dados analisados.';
             tableDiv.replaceChildren(empty);
             return;
         }
 
         const pressaoRef = Utils.getPressaoReferencia();
+
+        // ---- Agrupa picos por faixa ----
+        const faixas = new Map();
+
+        for (const pico of peaks) {
+            const diff = Utils.calcularDiferencaPercentual(pico.value, pressaoRef);
+            const cor = PEAK_COLORS.classificacao(diff);
+            const chave = cor.label;
+
+            if (!faixas.has(chave)) {
+                faixas.set(chave, {
+                    cor,
+                    count: 0,
+                    minPct: Math.abs(diff),
+                    maxPct: Math.abs(diff)
+                });
+            }
+            const f = faixas.get(chave);
+            f.count++;
+            const abs = Math.abs(diff);
+            f.minPct = Math.min(f.minPct, abs);
+            f.maxPct = Math.max(f.maxPct, abs);
+        }
+
+        // ---- Ordena por faixa crescente ----
+        const ordemFaixas = ['5-9%', '≥ 10%', '≥ 20%', '≥ 30%', '≥ 35%', '≥ 40%', '≥ 50%', '≥ 60%', '≥ 80%'];
+        const faixasOrdenadas = ordemFaixas
+            .filter(label => faixas.has(label))
+            .map(label => ({ label, ...faixas.get(label) }));
+
+        const total = peaks.length;
+
+        // ---- Faixa mais comum ----
+        let maisComum = faixasOrdenadas[0];
+        for (const f of faixasOrdenadas) {
+            if (f.count > maisComum.count) maisComum = f;
+        }
+
+        // ---- Constrói wrapper ----
+        const wrapper = document.createElement('div');
+
+        // Destaque
+        const destaque = document.createElement('div');
+        destaque.className = 'picos-destaque';
+
+        destaque.appendChild(this._buildDestaque('Total de picos', String(total)));
+        destaque.appendChild(this._buildDestaque(
+            'Faixa mais comum',
+            `${maisComum.label} (${maisComum.count}x)`,
+            'cor-comum'
+        ));
+        destaque.appendChild(this._buildDestaque('Faixas atingidas', String(faixasOrdenadas.length)));
+        wrapper.appendChild(destaque);
+
+        // Subtítulo
+        const sub = document.createElement('p');
+        sub.className = 'picos-subtitulo';
+        sub.textContent = 'Contagem de picos agrupados por magnitude (percentual acima da pressão de trabalho).';
+        wrapper.appendChild(sub);
+
+        // Tabela
         const table = document.createElement('table');
+        table.className = 'picos-resumo';
 
         const thead = document.createElement('thead');
         const headRow = document.createElement('tr');
-        for (const label of ['#', 'Horário', 'Pressão (Bar)', 'Diferença (%)', 'Referência (Bar)', 'Status']) {
+        for (const label of ['Faixa', 'Quantidade', '% do total', 'Distribuição']) {
             const th = document.createElement('th');
             th.textContent = label;
             headRow.appendChild(th);
@@ -855,129 +926,270 @@ const Tabela = {
         table.appendChild(thead);
 
         const tbody = document.createElement('tbody');
-        peaks.forEach((pico, idx) => {
-            const timeOnly = Utils.extractTimeOnly(times[pico.index]);
-            const diff = Utils.calcularDiferencaPercentual(pico.value, pressaoRef);
-            const sinal = diff >= 0 ? '+' : '';
-            const cssClass = diff >= 0 ? 'diferenca-positiva' : 'diferenca-negativa';
-            const status = StatusClassifier.get(diff);
 
+        for (const f of faixasOrdenadas) {
             const tr = document.createElement('tr');
-            if (Math.abs(diff) > 80) tr.classList.add('row-critical');
 
-            const tdIdx = document.createElement('td');
-            const strongIdx = document.createElement('strong');
-            strongIdx.textContent = String(idx + 1);
-            tdIdx.appendChild(strongIdx);
-            tr.appendChild(tdIdx);
+            // Faixa com bolinha colorida
+            const tdFaixa = document.createElement('td');
 
-            const tdTime = document.createElement('td');
-            tdTime.textContent = timeOnly;
-            tr.appendChild(tdTime);
+            const dot = document.createElement('span');
+            dot.className = 'picos-dot ' + this._classeCorPorLabel(f.label);
 
-            const tdPress = document.createElement('td');
-            tdPress.className = cssClass;
-            const strongPress = document.createElement('strong');
-            strongPress.textContent = pico.value.toFixed(4);
-            tdPress.appendChild(strongPress);
-            tr.appendChild(tdPress);
+            tdFaixa.appendChild(dot);
+            tdFaixa.appendChild(document.createTextNode(f.label));
+            tr.appendChild(tdFaixa);
 
-            const tdDiff = document.createElement('td');
-            tdDiff.className = cssClass;
-            const strongDiff = document.createElement('strong');
-            strongDiff.textContent = `${sinal}${diff.toFixed(2)}%`;
-            tdDiff.appendChild(strongDiff);
-            tr.appendChild(tdDiff);
+            // Quantidade
+            const tdQtd = document.createElement('td');
+            tdQtd.className = 'col-center';
+            const strongQtd = document.createElement('strong');
+            strongQtd.textContent = String(f.count);
+            tdQtd.appendChild(strongQtd);
+            tr.appendChild(tdQtd);
 
-            const tdRef = document.createElement('td');
-            tdRef.className = 'referencia';
-            tdRef.textContent = pressaoRef.toFixed(3);
-            tr.appendChild(tdRef);
+            // % do total
+            const pct = (f.count / total) * 100;
+            const tdPct = document.createElement('td');
+            tdPct.className = 'col-center';
+            tdPct.textContent = `${pct.toFixed(1)}%`;
+            tr.appendChild(tdPct);
 
-            const tdStatus = document.createElement('td');
-            const span = document.createElement('span');
-            span.className = `status-badge ${status.class}`;
-            span.textContent = status.text;
-            tdStatus.appendChild(span);
-            tr.appendChild(tdStatus);
+            // Barra visual — largura via classe pré-definida
+            const tdBarr = document.createElement('td');
+            tdBarr.className = 'col-barra';
+            const barra = document.createElement('div');
+            barra.className = 'picos-barra ' + this._classeCorBarraPorLabel(f.label) + ' ' + this._classeLargura(pct);
+            tdBarr.appendChild(barra);
+            tr.appendChild(tdBarr);
 
+            tbody.appendChild(tr);
+        }
+
+        // Linha de total
+        const trTotal = document.createElement('tr');
+        trTotal.className = 'row-total';
+
+        const tdTotal = document.createElement('td');
+        const strongTotal = document.createElement('strong');
+        strongTotal.textContent = 'TOTAL';
+        tdTotal.appendChild(strongTotal);
+        trTotal.appendChild(tdTotal);
+
+        const tdQtdTotal = document.createElement('td');
+        tdQtdTotal.className = 'col-center';
+        const strongQtdT = document.createElement('strong');
+        strongQtdT.textContent = String(total);
+        tdQtdTotal.appendChild(strongQtdT);
+        trTotal.appendChild(tdQtdTotal);
+
+        const tdPctTotal = document.createElement('td');
+        tdPctTotal.className = 'col-center';
+        const strongPctT = document.createElement('strong');
+        strongPctT.textContent = '100.0%';
+        tdPctTotal.appendChild(strongPctT);
+        trTotal.appendChild(tdPctTotal);
+
+        trTotal.appendChild(document.createElement('td'));
+        tbody.appendChild(trTotal);
+
+        table.appendChild(tbody);
+        wrapper.appendChild(table);
+
+        tableDiv.replaceChildren(wrapper);
+    },
+
+    /* -------- helpers internos para CSP-safe -------- */
+    _buildDestaque(label, valor, classeExtra) {
+        const item = document.createElement('div');
+        item.className = 'picos-destaque-item';
+
+        const l = document.createElement('span');
+        l.className = 'picos-destaque-label';
+        l.textContent = label;
+
+        const v = document.createElement('span');
+        v.className = 'picos-destaque-valor' + (classeExtra ? ' ' + classeExtra : '');
+        v.textContent = valor;
+
+        item.append(l, v);
+        return item;
+    },
+
+    _classeCorPorLabel(label) {
+        return {
+            '5-9%':  'dot-5',
+            '≥ 10%': 'dot-10',
+            '≥ 20%': 'dot-20',
+            '≥ 30%': 'dot-30',
+            '≥ 35%': 'dot-35',
+            '≥ 40%': 'dot-40',
+            '≥ 50%': 'dot-50',
+            '≥ 60%': 'dot-60',
+            '≥ 80%': 'dot-80'
+        }[label] || 'dot-5';
+    },
+
+    _classeCorBarraPorLabel(label) {
+        return {
+            '5-9%':  'bar-5',
+            '≥ 10%': 'bar-10',
+            '≥ 20%': 'bar-20',
+            '≥ 30%': 'bar-30',
+            '≥ 35%': 'bar-35',
+            '≥ 40%': 'bar-40',
+            '≥ 50%': 'bar-50',
+            '≥ 60%': 'bar-60',
+            '≥ 80%': 'bar-80'
+        }[label] || 'bar-5';
+    },
+
+    /**
+     * Converte um percentual (0-100) em uma classe tipo "w-42".
+     * O CSS precisa ter .w-0 até .w-100.
+     */
+    _classeLargura(pct) {
+        const n = Math.max(0, Math.min(100, Math.round(pct)));
+        return 'w-' + n;
+    },
+
+    /* --------------------------------------------------------------
+     * ESTABILIDADES
+     * -------------------------------------------------------------- */
+    renderStabilidades(points) {
+        const badge = document.getElementById('estabCountBadge');
+        const container = document.getElementById('estabTableContainer');
+        const tableDiv = document.getElementById('estabTable');
+
+        if (!container || !tableDiv) return;
+
+        const inicios = points.filter(p => p.papel !== 'fim');
+        const total = inicios.length;
+
+        badge.textContent = `${total} estabilidade${total !== 1 ? 's' : ''}`;
+        container.hidden = false;
+
+        if (total === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = '⚠️ Nenhum período estável (>3 min) detectado.';
+            tableDiv.replaceChildren(empty);
+            return;
+        }
+
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        for (const label of ['#', 'Início', 'Fim', 'Duração', 'Pressão (Bar)']) {
+            const th = document.createElement('th');
+            th.textContent = label;
+            headRow.appendChild(th);
+        }
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        inicios.forEach((p, idx) => {
+            const tr = document.createElement('tr');
+            const cells = [
+                { text: String(idx + 1), strong: true },
+                { text: Utils.extractTimeOnly(p.time) },
+                { text: Utils.extractTimeOnly(p.timeFim) },
+                { text: Utils.formatDuracao(p.duracaoSegundos) },
+                { text: p.value.toFixed(4) }
+            ];
+            for (const c of cells) {
+                const td = document.createElement('td');
+                if (c.strong) {
+                    const s = document.createElement('strong');
+                    s.textContent = c.text;
+                    td.appendChild(s);
+                } else {
+                    td.textContent = c.text;
+                }
+                tr.appendChild(td);
+            }
             tbody.appendChild(tr);
         });
         table.appendChild(tbody);
         tableDiv.replaceChildren(table);
     },
 
-    renderStats(pressures, peaks, stablePoints) {
+    /* --------------------------------------------------------------
+     * ESTATÍSTICAS
+     * -------------------------------------------------------------- */
+    renderStats(pressures, peaks, stables) {
         const maxP = Math.max(...pressures);
         const minP = Math.min(...pressures);
         const avgP = pressures.reduce((a, b) => a + b, 0) / pressures.length;
-        const maxPeak = peaks.length ? Math.max(...peaks.map(p => p.value)) : 0;
         const pressaoRef = Utils.getPressaoReferencia();
-        const maxDiff = Utils.calcularDiferencaPercentual(maxPeak, pressaoRef);
+
+        const totalEstab = stables.filter(s => s.papel !== 'fim').length;
 
         const stats = [
             { value: maxP.toFixed(3), label: 'Máxima Geral' },
             { value: minP.toFixed(3), label: 'Mínima Geral' },
             { value: avgP.toFixed(3), label: 'Média' },
-            { value: maxPeak.toFixed(3), label: 'Maior Pico', peak: true },
-            { value: `${maxDiff >= 0 ? '+' : ''}${maxDiff.toFixed(2)}%`, label: 'Variação', peak: true },
+            { value: pressaoRef.toFixed(3), label: 'Referência' },
             { value: peaks.length, label: 'Total Picos' },
-            { value: stablePoints.length, label: 'Estabilidades' }
+            { value: totalEstab, label: 'Estabilidades' }
         ];
 
         const row = document.getElementById('statsRow');
         const frag = document.createDocumentFragment();
-
         for (const s of stats) {
             const box = document.createElement('div');
             box.className = 'stat-box';
-
             const val = document.createElement('div');
-            val.className = 'stat-value' + (s.peak ? ' peak' : '');
+            val.className = 'stat-value';
             val.textContent = String(s.value);
-
             const lbl = document.createElement('div');
             lbl.className = 'stat-label';
             lbl.textContent = s.label;
-
             box.append(val, lbl);
             frag.appendChild(box);
         }
-
         row.replaceChildren(frag);
         row.hidden = false;
     }
 };
 
 /* ----------------------------------------------------------------
- * PROCESSAMENTO
+ * PROCESSADOR
  * ---------------------------------------------------------------- */
 const Processador = {
     MAX_FILE_SIZE: 50 * 1024 * 1024,
 
     processarTexto(text) {
         this._esconderErro();
+
+        // 1. Valida a pressão de referência ANTES de tudo
+        const pressaoRef = Utils.getPressaoReferencia();
+        if (!Number.isFinite(pressaoRef) || pressaoRef <= 0) {
+            this._erro('⚠️ Informe a Pressão de Trabalho (100%) antes de carregar o CSV.');
+            document.getElementById('pressaoTrabalho').focus();
+            return;
+        }
+
+        // 2. Agora sim, limpa os dados da análise anterior
         App.limparDados();
 
+        // 3. Valida o texto
         if (!text || typeof text !== 'string') {
             this._erro('Arquivo vazio ou inválido.');
             return;
         }
 
+        // 4. Parse do CSV
         let rows;
-        try {
-            rows = CSVParser.parse(text);
-        } catch (err) {
-            this._erro('Erro ao analisar CSV: ' + err.message);
-            return;
-        }
+        try { rows = CSVParser.parse(text); }
+        catch (err) { this._erro('Erro ao analisar CSV: ' + err.message); return; }
 
         if (!Array.isArray(rows) || rows.length < 2) {
             this._erro('Arquivo vazio ou com poucos dados');
             return;
         }
 
-        // Detecta se a primeira linha é cabeçalho
         const firstRow = rows[0];
         const firstPressure = firstRow.length >= 2
             ? parseFloat(String(firstRow[1]).replace(',', '.').trim())
@@ -990,11 +1202,9 @@ const Processador = {
         for (let i = startIndex; i < rows.length; i++) {
             const row = rows[i];
             if (!row || row.length < 2) continue;
-
             const timeStr = row[0] != null ? String(row[0]).trim() : '';
             const pressStr = row[1] != null ? String(row[1]).replace(',', '.').trim() : '';
             const press = parseFloat(pressStr);
-
             if (timeStr !== '' && Number.isFinite(press)) {
                 times.push(timeStr);
                 pressures.push(press);
@@ -1006,29 +1216,30 @@ const Processador = {
             return;
         }
 
+        // 5. Detecção
         State.rawTimes = times;
         State.rawPressures = pressures;
-        State.currentPeaks = Detector.detectPeaks(pressures);
-        State.currentStablePoints = Detector.detectStabilityStarts(pressures, times);
+        State.currentPeaks = Detector.detectPeaks(pressures, pressaoRef);
+        State.currentStablePoints = Detector.detectStabilityStarts(pressures, times, pressaoRef);
 
-        const peakData = new Array(pressures.length).fill(null);
-        State.currentPeaks.forEach(p => { peakData[p.index] = p.value; });
-
-        const stableData = new Array(pressures.length).fill(null);
-        State.currentStablePoints.forEach(p => { stableData[p.index] = p.value; });
-
+        // 6. Renderização
         Tabela.renderPicos(State.currentPeaks, times);
+        Tabela.renderStabilidades(State.currentStablePoints);
         Tabela.renderStats(pressures, State.currentPeaks, State.currentStablePoints);
 
         State.currentChartData = {
             times: [...times],
-            lineData: [...pressures],
-            peakData: [...peakData],
-            stableData: [...stableData]
+            lineData: [...pressures]
         };
 
         document.getElementById('chartContainer').hidden = false;
-        CanvasChart.render(times, pressures, peakData, stableData);
+        CanvasChart.render(
+            times,
+            pressures,
+            State.currentPeaks,
+            State.currentStablePoints,
+            pressaoRef
+        );
         this._updateLegend(times);
 
         State.dadosProcessados = true;
@@ -1049,7 +1260,6 @@ const Processador = {
         const ultimo = times[times.length - 1];
         const dataInicio = primeiro.split(' ')[0] || primeiro;
         const dataFim = ultimo.split(' ')[0] || ultimo;
-
         document.getElementById('periodoInicio').textContent =
             `${dataInicio} ${Utils.extractTimeOnly(primeiro)}`;
         document.getElementById('periodoFim').textContent =
@@ -1061,10 +1271,11 @@ const Processador = {
         const el = document.getElementById('errorMsg');
         el.textContent = msg;
         el.hidden = false;
-
         document.getElementById('chartContainer').hidden = true;
         document.getElementById('chartLegend').hidden = true;
         document.getElementById('picosTableContainer').hidden = true;
+        const e = document.getElementById('estabTableContainer');
+        if (e) e.hidden = true;
         document.getElementById('statsRow').hidden = true;
         State.dadosProcessados = false;
     },
@@ -1075,7 +1286,7 @@ const Processador = {
 };
 
 /* ----------------------------------------------------------------
- * APP (orquestração)
+ * APP
  * ---------------------------------------------------------------- */
 const App = {
     init() {
@@ -1093,54 +1304,107 @@ const App = {
         const btn = document.getElementById('uploadLabelBtn');
         const fileInfo = document.getElementById('fileInfo');
 
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            input.click();
-        });
+        btn.addEventListener('click', (e) => { e.stopPropagation(); input.click(); });
 
         input.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            if (file.size > Processador.MAX_FILE_SIZE) {
-                alert(`Arquivo muito grande! Limite: 50 MB. (Atual: ${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+            // Bloqueia se pressão de referência estiver vazia
+            const ref = Utils.getPressaoReferencia();
+            if (!Number.isFinite(ref) || ref <= 0) {
+                alert('⚠️ Informe a Pressão de Trabalho (100%) antes de carregar o CSV.');
+                document.getElementById('pressaoTrabalho').focus();
                 input.value = '';
                 fileInfo.textContent = 'Nenhum arquivo selecionado';
                 return;
             }
 
+            if (file.size > Processador.MAX_FILE_SIZE) {
+                alert('Arquivo muito grande! Limite: 50 MB.');
+                input.value = '';
+                fileInfo.textContent = 'Nenhum arquivo selecionado';
+                return;
+            }
             fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
-
             const reader = new FileReader();
-            reader.onload = (ev) => {
-                Processador.processarTexto(String(ev.target.result || ''));
-            };
+            reader.onload = (ev) => Processador.processarTexto(String(ev.target.result || ''));
             reader.onerror = () => Processador._erro('Erro ao ler o arquivo.');
             reader.readAsText(file, 'UTF-8');
         });
     },
 
     _bindAcoes() {
-        document.getElementById('btnLimparFormulario')
-            .addEventListener('click', () => {
-                Relatorio.limpar();
-                Responsaveis.grid.replaceChildren();
-                State.nextResponsavelId = 1;
-                Responsaveis.adicionar();
-            });
-
-        document.getElementById('btnLimparDados')
-            .addEventListener('click', () => this.limparDados());
-
-        document.getElementById('btnImprimir')
-            .addEventListener('click', () => this.imprimir());
+        document.getElementById('btnLimparFormulario').addEventListener('click', () => {
+            Relatorio.limpar();
+            Responsaveis.grid.replaceChildren();
+            State.nextResponsavelId = 1;
+            Responsaveis.adicionar();
+        });
+        document.getElementById('btnLimparDados').addEventListener('click', () => this.limparDados());
+        document.getElementById('btnImprimir').addEventListener('click', () => this.imprimir());
     },
+
+    /* --------------------------------------------------------------
+     * Reanalisa os dados já carregados com a nova referência
+     * Chamado quando o usuário edita a pressão de trabalho
+     * -------------------------------------------------------------- */
+    reanalisar() {
+        if (!State.rawPressures.length || !State.rawTimes.length) return;
+
+        const pressaoRef = Utils.getPressaoReferencia();
+        if (!Number.isFinite(pressaoRef) || pressaoRef <= 0) {
+            // Referência inválida: limpa o gráfico
+            CanvasChart.destruir();
+            document.getElementById('chartContainer').hidden = true;
+            document.getElementById('chartLegend').hidden = true;
+            document.getElementById('picosTableContainer').hidden = true;
+            const e = document.getElementById('estabTableContainer');
+            if (e) e.hidden = true;
+            document.getElementById('statsRow').hidden = true;
+            State.dadosProcessados = false;
+            return;
+        }
+
+        const times = State.rawTimes;
+        const pressures = State.rawPressures;
+
+        // Reanalisa tudo com a nova referência
+        State.currentPeaks = Detector.detectPeaks(pressures, pressaoRef);
+        State.currentStablePoints = Detector.detectStabilityStarts(pressures, times, pressaoRef);
+
+        Tabela.renderPicos(State.currentPeaks, times);
+        Tabela.renderStabilidades(State.currentStablePoints);
+        Tabela.renderStats(pressures, State.currentPeaks, State.currentStablePoints);
+
+        State.currentChartData = {
+            times: [...times],
+            lineData: [...pressures]
+        };
+
+        document.getElementById('chartContainer').hidden = false;
+        CanvasChart.render(
+            times,
+            pressures,
+            State.currentPeaks,
+            State.currentStablePoints,
+            pressaoRef
+        );
+
+        State.dadosProcessados = true;
+        Relatorio.atualizarCabecalho();
+        document.getElementById('reportHeader').hidden = false;
+    },
+
+
 
     limparDados() {
         CanvasChart.destruir();
         document.getElementById('chartContainer').hidden = true;
         document.getElementById('chartLegend').hidden = true;
         document.getElementById('picosTableContainer').hidden = true;
+        const e = document.getElementById('estabTableContainer');
+        if (e) e.hidden = true;
         document.getElementById('statsRow').hidden = true;
         document.getElementById('reportHeader').hidden = true;
         document.getElementById('fileInfo').textContent = 'Nenhum arquivo selecionado';
@@ -1160,16 +1424,13 @@ const App = {
             alert('Carregue um arquivo CSV primeiro!');
             return;
         }
-
-        const ref = parseFloat(document.getElementById('pressaoTrabalho').value);
+        const ref = Utils.getPressaoReferencia();
         if (!Number.isFinite(ref) || ref <= 0) {
-            alert('Informe uma Pressão de Trabalho maior que zero antes de imprimir.');
+            alert('⚠️ Informe a Pressão de Trabalho (100%) antes de imprimir.');
             document.getElementById('pressaoTrabalho').focus();
             return;
         }
-
         Relatorio.atualizarCabecalho();
-        // Redesenha o gráfico antes de imprimir para garantir resolução correta
         CanvasChart.recriar();
         setTimeout(() => window.print(), 200);
     },
@@ -1179,18 +1440,45 @@ const App = {
             if (State.resizeTimeout) clearTimeout(State.resizeTimeout);
             State.resizeTimeout = setTimeout(() => CanvasChart.recriar(), 150);
         };
-
         if (State.resizeObserver) State.resizeObserver.disconnect();
         State.resizeObserver = new ResizeObserver(debounced);
-
         const container = document.getElementById('chartContainer');
         if (container) State.resizeObserver.observe(container);
-
         window.addEventListener('resize', debounced);
     }
 };
 
-/* ----------------------------------------------------------------
- * BOOT
- * ---------------------------------------------------------------- */
 document.addEventListener('DOMContentLoaded', () => App.init());
+
+/* ----------------------------------------------------------------
+ * PWA — Registra o Service Worker para funcionamento offline
+ * ---------------------------------------------------------------- */
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker
+            .register('./service-worker.js')
+            .then((reg) => {
+                console.log('[PWA] Service Worker registrado:', reg.scope);
+
+                // Verifica se há atualização disponível
+                reg.addEventListener('updatefound', () => {
+                    const newWorker = reg.installing;
+                    if (!newWorker) return;
+
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // Há uma nova versão em cache — avisa o usuário
+                            const msg = 'Nova versão disponível. Recarregar agora?';
+                            if (confirm(msg)) {
+                                newWorker.postMessage('SKIP_WAITING');
+                                window.location.reload();
+                            }
+                        }
+                    });
+                });
+            })
+            .catch((err) => {
+                console.warn('[PWA] Falha ao registrar SW:', err);
+            });
+    });
+}
