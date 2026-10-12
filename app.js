@@ -2,19 +2,117 @@
 
 /* ================================================================
  * DATA LOGGER - ANÁLISE DE PRESSÃO
- * Zero dependências externas.
+ * Zero dependências externas. CSP-safe.
  *
- * Referência = pressão de trabalho (100%)
+ * ================================================================
+ * MÉTRICA: análise por FAIXAS PERCENTUAIS
+ * ================================================================
+ * A pressão de trabalho = 100%. Zero absoluto = 0%.
  *
- * Marcadores no gráfico (apenas bolinhas, cor por magnitude):
- *   🔴 Vermelho  5-9%    🔵 Azul      10-19%
- *   🟠 Laranja   20-29%  🟣 Roxo      30-34%
- *   🟡 Amarelo   35-39%  🟢 Verde     40-49%
- *   🟤 Marrom    50-59%  ⚫ Preto     60-79%
- *   💗 Magenta   80%+
+ *   - Cada faixa representa um percentual da pressão de trabalho
+ *   - Linhas horizontais tracejadas no gráfico marcam cada faixa
+ *   - Análise conta: quantas vezes cada faixa foi atingida e por
+ *     quanto tempo a curva permaneceu acima/abaixo dela
+ *   - Sem marcadores de pico: apenas linhas de referência
  *
- * Estabilidade é marcada em verde-escuro (losango).
- * ================================================================ */
+ * ================================================================
+ * PERSISTÊNCIA
+ * ================================================================
+ * Logo, responsáveis e pressão de trabalho são salvos em
+ * localStorage e restaurados na próxima sessão.
+ *
+ * ================================================================
+ * IMPRESSÃO DE ALTA RESOLUÇÃO
+ * ================================================================
+ * Ao imprimir, o gráfico é redesenhado com DPR forçado (2.5x) para
+ * sair nítido no papel/PDF.
+ *
+ * ================================================================
+ */
+
+const CONFIG = {
+    FAIXAS_PCT: [-5, 0, 5, 10, 80, 85, 90, 95, 100, 105, 110, 115,
+                 120, 125, 130, 135, 140, 150, 160, 170, 180],
+    MIN_PRESSAO_PCT_REF: 2,
+    LIMIAR_PRECISAO: 0.350,
+    _sampleRate: 1
+};
+
+/* ----------------------------------------------------------------
+ * PERSISTÊNCIA LOCAL (localStorage)
+ * ---------------------------------------------------------------- */
+const Storage = {
+    KEY_LOGO: 'datalogger_logo',
+    KEY_RESP: 'datalogger_responsaveis',
+    KEY_PRESSAO: 'datalogger_pressao',
+
+    _disponivel() {
+        try {
+            const t = '__test__';
+            localStorage.setItem(t, t);
+            localStorage.removeItem(t);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    },
+
+    salvarLogo(dataURL) {
+        if (!this._disponivel()) return;
+        try {
+            if (dataURL) localStorage.setItem(this.KEY_LOGO, dataURL);
+            else localStorage.removeItem(this.KEY_LOGO);
+        } catch (e) { console.warn('[Storage] Falha ao salvar logo:', e); }
+    },
+
+    carregarLogo() {
+        if (!this._disponivel()) return null;
+        try { return localStorage.getItem(this.KEY_LOGO) || null; }
+        catch (e) { return null; }
+    },
+
+    salvarResponsaveis(lista) {
+        if (!this._disponivel()) return;
+        try {
+            if (Array.isArray(lista) && lista.length > 0) {
+                localStorage.setItem(this.KEY_RESP, JSON.stringify(lista));
+            } else {
+                localStorage.removeItem(this.KEY_RESP);
+            }
+        } catch (e) { console.warn('[Storage] Falha ao salvar responsáveis:', e); }
+    },
+
+    carregarResponsaveis() {
+        if (!this._disponivel()) return [];
+        try {
+            const raw = localStorage.getItem(this.KEY_RESP);
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) { return []; }
+    },
+
+    salvarPressao(valor) {
+        if (!this._disponivel()) return;
+        try {
+            if (Number.isFinite(valor) && valor > 0) {
+                localStorage.setItem(this.KEY_PRESSAO, String(valor));
+            } else {
+                localStorage.removeItem(this.KEY_PRESSAO);
+            }
+        } catch (e) { console.warn('[Storage] Falha ao salvar pressão:', e); }
+    },
+
+    carregarPressao() {
+        if (!this._disponivel()) return null;
+        try {
+            const raw = localStorage.getItem(this.KEY_PRESSAO);
+            if (!raw) return null;
+            const v = parseFloat(raw);
+            return Number.isFinite(v) && v > 0 ? v : null;
+        } catch (e) { return null; }
+    }
+};
 
 /* ----------------------------------------------------------------
  * ESTADO GLOBAL
@@ -25,12 +123,12 @@ const State = {
     rawTimes: [],
     rawPressures: [],
     logoDataURL: null,
-    nextResponsavelId: 1,
-    resizeObserver: null,
     currentChartData: null,
-    currentPeaks: [],
-    currentStablePoints: [],
-    resizeTimeout: null
+    faixasResultado: [],
+    amostragemSegundos: 1,
+    resizeTimeout: null,
+    resizeObserver: null,
+    debug: false
 };
 
 /* ----------------------------------------------------------------
@@ -44,15 +142,9 @@ const Utils = {
 
     getPressaoReferencia() {
         const el = document.getElementById('pressaoTrabalho');
+        if (!el) return null;
         const valor = parseFloat(el.value);
         return Number.isFinite(valor) && valor > 0 ? valor : null;
-    },
-
-    calcularDiferencaPercentual(valor, pressaoReferencia) {
-        const v = Number(valor);
-        const ref = Number(pressaoReferencia);
-        if (!Number.isFinite(v) || !Number.isFinite(ref) || ref <= 0) return 0;
-        return ((v - ref) / ref) * 100;
     },
 
     parseTimeToSeconds(str) {
@@ -69,39 +161,55 @@ const Utils = {
     formatDuracao(seg) {
         const s = Math.round(seg);
         if (s < 60) return `${s}s`;
-        const min = Math.floor(s / 60);
+        const h = Math.floor(s / 3600);
+        const min = Math.floor((s % 3600) / 60);
         const resto = s % 60;
+        if (h > 0) return `${h}h ${min}min ${resto}s`;
         return `${min}min ${resto}s`;
+    },
+
+    formatAmostragem(seg) {
+        if (!Number.isFinite(seg) || seg <= 0) return '—';
+        if (seg < 1) return `${seg.toFixed(2)} s/ponto`;
+        return `${seg.toFixed(0)} s/ponto`;
+    },
+
+    formatPressao(valor, limiar = CONFIG.LIMIAR_PRECISAO) {
+        if (!Number.isFinite(valor)) return '—';
+        const abs = Math.abs(valor);
+        return abs >= limiar ? valor.toFixed(2) : valor.toFixed(4);
     }
 };
 
 /* ----------------------------------------------------------------
- * PALETA DE PICOS — cor por magnitude (%)
+ * PALETA DE CORES DAS FAIXAS
  * ---------------------------------------------------------------- */
-const PEAK_PALETTE = [
-    { min: 80, fill: '#e91e63', border: '#ad1457', label: '≥ 80%' },
-    { min: 60, fill: '#212121', border: '#000000', label: '≥ 60%' },
-    { min: 50, fill: '#795548', border: '#4e342e', label: '≥ 50%' },
-    { min: 40, fill: '#2c9e6e', border: '#1a6e4a', label: '≥ 40%' },
-    { min: 35, fill: '#f9c022', border: '#b8860b', label: '≥ 35%' },
-    { min: 30, fill: '#8e44ad', border: '#5b2c6f', label: '≥ 30%' },
-    { min: 20, fill: '#e67e22', border: '#a04000', label: '≥ 20%' },
-    { min: 10, fill: '#3b82f6', border: '#1e40af', label: '≥ 10%' },
-    { min: 5,  fill: '#c07070', border: '#a05050', label: '5-9%' }
-];
-
-const PEAK_COLORS = {
-    classificacao(percentual) {
-        const abs = Math.abs(percentual);
-        for (const p of PEAK_PALETTE) {
-            if (abs >= p.min) return { fill: p.fill, border: p.border, label: p.label };
-        }
-        return { fill: '#c07070', border: '#a05050', label: '< 5%' };
-    }
+const PALETA_FAIXAS = {
+    '-5':  { fill: '#1a1a1a', border: '#000000' },
+    '0':   { fill: '#2c2c2c', border: '#000000' },
+    '5':   { fill: '#3a3a3a', border: '#000000' },
+    '10':  { fill: '#4a4a4a', border: '#1a1a1a' },
+    '80':  { fill: '#8b0000', border: '#5a0000' },
+    '85':  { fill: '#a52a2a', border: '#6a1a1a' },
+    '90':  { fill: '#c07070', border: '#8a4040' },
+    '95':  { fill: '#e0a0a0', border: '#b06060' },
+    '100': { fill: '#2c9e6e', border: '#1a6e4a' },
+    '105': { fill: '#4ab88a', border: '#2a8060' },
+    '110': { fill: '#a8c840', border: '#7a9e20' },
+    '115': { fill: '#f9c022', border: '#b8860b' },
+    '120': { fill: '#f0a030', border: '#c07020' },
+    '125': { fill: '#e67e22', border: '#a04000' },
+    '130': { fill: '#e06020', border: '#a04010' },
+    '135': { fill: '#cc4a1a', border: '#8a3010' },
+    '140': { fill: '#b83030', border: '#8a1010' },
+    '150': { fill: '#8e44ad', border: '#5b2c6f' },
+    '160': { fill: '#5b2c8f', border: '#3a1a5f' },
+    '170': { fill: '#3a1a5f', border: '#200f40' },
+    '180': { fill: '#e91e63', border: '#ad1457' }
 };
 
 /* ----------------------------------------------------------------
- * PARSER CSV (nativo, sem dependências)
+ * PARSER CSV
  * ---------------------------------------------------------------- */
 const CSVParser = {
     detectDelimiter(text) {
@@ -148,169 +256,70 @@ const CSVParser = {
 };
 
 /* ----------------------------------------------------------------
- * DETECTOR — Picos e Estabilidades
+ * ANALISADOR DE FAIXAS
  * ---------------------------------------------------------------- */
-const Detector = {
-    // Picos
-    PICO_MIN_WAVE_PCT: 5,       // altura mínima da "onda"
-    PICO_MIN_DISTANCE: 5,       // distância mínima entre picos (pontos)
-
-    // Estabilidade
-    ESTAB_DURACAO_SEG: 180,     // 3 minutos
-    ESTAB_TOLERANCIA_PCT: 2,    // ±2%
-    ESTAB_MIN_GAP_SEG: 60,      // 1 min entre marcações
-
-    /* --------------------------------------------------------------
-     * PICOS — máximos/mínimos locais (eletrocardiograma)
-     * -------------------------------------------------------------- */
-    detectPeaks(pressures, pressaoRef) {
-        if (!Array.isArray(pressures) || pressures.length < 3) return [];
+const AnalisadorFaixas = {
+    analisar(times, pressures, pressaoRef) {
+        if (!Array.isArray(pressures) || pressures.length < 2) return [];
         if (!Number.isFinite(pressaoRef) || pressaoRef <= 0) return [];
 
-        const minWave = (this.PICO_MIN_WAVE_PCT / 100) * pressaoRef;
-        const minDist = this.PICO_MIN_DISTANCE;
-
-        // Encontra extremos locais
-        const extremos = [];
-        for (let i = 1; i < pressures.length - 1; i++) {
-            const a = Number(pressures[i - 1]);
-            const b = Number(pressures[i]);
-            const c = Number(pressures[i + 1]);
-            if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) continue;
-
-            if (b > a && b >= c) extremos.push({ index: i, value: b, tipo: 'max' });
-            else if (b < a && b <= c) extremos.push({ index: i, value: b, tipo: 'min' });
-        }
-
-        // Filtra por alternância + altura mínima
-        const picos = [];
-        let ultimo = null;
-        for (const e of extremos) {
-            if (!ultimo) { ultimo = e; continue; }
-            if (e.tipo === ultimo.tipo) {
-                if (e.tipo === 'max' && e.value > ultimo.value) ultimo = e;
-                else if (e.tipo === 'min' && e.value < ultimo.value) ultimo = e;
-                continue;
-            }
-            const altura = Math.abs(e.value - ultimo.value);
-            if (altura >= minWave) {
-                const dpA = Math.abs(ultimo.value - pressaoRef);
-                const dpB = Math.abs(e.value - pressaoRef);
-                const escolhido = dpA >= dpB ? ultimo : e;
-                picos.push({
-                    index: escolhido.index,
-                    value: escolhido.value,
-                    tipo: escolhido.tipo,
-                    variacaoPercentual: ((escolhido.value - pressaoRef) / pressaoRef) * 100
-                });
-            }
-            ultimo = e;
-        }
-
-        // Distância mínima
-        const filtrados = [];
-        for (const p of picos) {
-            const last = filtrados[filtrados.length - 1];
-            if (!last || p.index - last.index >= minDist) {
-                filtrados.push(p);
-            } else if (Math.abs(p.variacaoPercentual) > Math.abs(last.variacaoPercentual)) {
-                filtrados[filtrados.length - 1] = p;
-            }
-        }
-        return filtrados;
-    },
-
-    /* --------------------------------------------------------------
-     * ESTABILIDADE — marca INÍCIO e FIM de cada trecho estável
-     * Variação tolerada: ±ESTAB_TOLERANCIA_PCT da referência
-     * Duração mínima: ESTAB_DURACAO_SEG segundos
-     * -------------------------------------------------------------- */
-    detectStabilityStarts(pressures, times, pressaoRef) {
-        if (!Array.isArray(pressures) || pressures.length < 5) return [];
-        if (!Number.isFinite(pressaoRef) || pressaoRef <= 0) return [];
-
-        const tol = this.ESTAB_TOLERANCIA_PCT / 100;
-        const minSeg = this.ESTAB_DURACAO_SEG;
-        const minGapSeg = this.ESTAB_MIN_GAP_SEG;
-
-        const tempo = times.map(t => Utils.parseTimeToSeconds(t));
-        const dentro = (v) => Number.isFinite(v) && Math.abs(v - pressaoRef) / pressaoRef <= tol;
-
-        // Segmenta em regiões contíguas dentro da faixa
-        const regioes = [];
-        let inicio = -1;
-        for (let i = 0; i < pressures.length; i++) {
-            if (dentro(Number(pressures[i]))) {
-                if (inicio === -1) inicio = i;
-            } else {
-                if (inicio !== -1) { regioes.push({ inicio, fim: i - 1 }); inicio = -1; }
-            }
-        }
-        if (inicio !== -1) regioes.push({ inicio, fim: pressures.length - 1 });
-
-        // Cada região estável gera 2 marcações: início e fim
+        const faixas = CONFIG.FAIXAS_PCT;
         const result = [];
-        let ultimoT = -Infinity;
 
-        for (const r of regioes) {
-            const tIni = tempo[r.inicio];
-            const tFim = tempo[r.fim];
-            let dur = 0;
-            if (Number.isFinite(tIni) && Number.isFinite(tFim) && tFim >= tIni) dur = tFim - tIni;
-            else dur = r.fim - r.inicio;
+        const temposSeg = times.map(t => Utils.parseTimeToSeconds(t));
+        const amostragemPadrao = CONFIG._sampleRate || 1;
 
-            if (dur < minSeg) continue;
-            if (Number.isFinite(tIni) && tIni - ultimoT < minGapSeg) continue;
+        const duracoes = new Array(pressures.length).fill(amostragemPadrao);
+        for (let i = 1; i < pressures.length; i++) {
+            const t1 = temposSeg[i - 1];
+            const t2 = temposSeg[i];
+            if (Number.isFinite(t1) && Number.isFinite(t2) && t2 >= t1) {
+                let d = t2 - t1;
+                if (d < 0) d += 24 * 3600;
+                if (d > 0 && d <= 600) duracoes[i] = d;
+            }
+        }
 
-            // ---- Marcador de INÍCIO ----
-            result.push({
-                index: r.inicio,
-                indexFim: r.fim,
-                time: times[r.inicio],
-                timeFim: times[r.fim],
-                value: pressures[r.inicio],
-                duracaoSegundos: dur,
-                papel: 'inicio'
-            });
+        for (const pct of faixas) {
+            const valorLimite = pressaoRef * (pct / 100);
 
-            // ---- Marcador de FIM ----
-            // Só marca o fim se o trecho for razoavelmente longo
-            // (evita duplicar em trechos muito curtos que só bateram o mínimo)
-            if (dur >= minSeg * 1.2 && r.fim > r.inicio + 5) {
-                result.push({
-                    index: r.fim,
-                    indexFim: r.fim,
-                    time: times[r.fim],
-                    timeFim: times[r.fim],
-                    value: pressures[r.fim],
-                    duracaoSegundos: dur,
-                    papel: 'fim'
-                });
+            let ocorrencias = 0;
+            let tempoTotalSeg = 0;
+            let dentro = false;
+
+            for (let i = 0; i < pressures.length; i++) {
+                const valor = Number(pressures[i]);
+                if (!Number.isFinite(valor)) continue;
+
+                const estaDentro = this._estaNaFaixa(valor, valorLimite, pct);
+
+                if (estaDentro && !dentro) {
+                    ocorrencias++;
+                    dentro = true;
+                } else if (!estaDentro && dentro) {
+                    dentro = false;
+                }
+
+                if (estaDentro) {
+                    const dur = (i === 0) ? amostragemPadrao : duracoes[i];
+                    if (Number.isFinite(dur)) tempoTotalSeg += dur;
+                }
             }
 
-            ultimoT = Number.isFinite(tIni) ? tIni : r.inicio;
+            result.push({
+                pct,
+                valorBar: valorLimite,
+                ocorrencias,
+                tempoTotalSeg
+            });
         }
+
         return result;
     },
-};
 
-/* ----------------------------------------------------------------
- * STATUS CLASSIFIER (badges na tabela)
- * ---------------------------------------------------------------- */
-const StatusClassifier = {
-    get(percentual) {
-        const abs = Math.abs(percentual);
-        const sinal = percentual >= 0 ? '🔴 ALTO' : '📉 BAIXO';
-        if (abs >= 80) return { class: 'status-alto-100', text: `${sinal} ${Math.round(abs)}%` };
-        if (abs >= 60) return { class: 'status-alto-80',  text: `${sinal} ${Math.round(abs)}%` };
-        if (abs >= 50) return { class: 'status-alto-60',  text: `${sinal} ${Math.round(abs)}%` };
-        if (abs >= 40) return { class: 'status-alto-50',  text: `${sinal} ${Math.round(abs)}%` };
-        if (abs >= 35) return { class: 'status-alto-40',  text: `${sinal} ${Math.round(abs)}%` };
-        if (abs >= 30) return { class: 'status-alto-30',  text: `${sinal} ${Math.round(abs)}%` };
-        if (abs >= 20) return { class: 'status-alto-20',  text: `${sinal} ${Math.round(abs)}%` };
-        if (abs >= 10) return { class: 'status-alto-10',  text: `${sinal} ${Math.round(abs)}%` };
-        if (abs >= 5)  return { class: 'status-alto-10',  text: `${sinal} ${Math.round(abs)}%` };
-        return { class: 'status-normal', text: '✓ NORMAL' };
+    _estaNaFaixa(valor, valorLimite, pct) {
+        if (pct < 100) return valor <= valorLimite;
+        return valor >= valorLimite;
     }
 };
 
@@ -319,6 +328,7 @@ const StatusClassifier = {
  * ---------------------------------------------------------------- */
 const Responsaveis = {
     grid: null, reportGrid: null, reportSection: null,
+    _debTimer: null,
 
     init() {
         this.grid = document.getElementById('responsaveisGrid');
@@ -326,20 +336,36 @@ const Responsaveis = {
         this.reportSection = document.getElementById('responsaveisReport');
 
         document.getElementById('btnAddResponsavel')
-            .addEventListener('click', () => this.adicionar());
+            .addEventListener('click', () => {
+                this.adicionar();
+                this._persistir();
+            });
 
         this.grid.addEventListener('click', (e) => {
             const btn = e.target.closest('.btn-remove-responsavel');
             if (!btn) return;
             const card = btn.closest('.responsavel-card');
-            if (card) { card.remove(); this.atualizarRelatorio(); }
+            if (card) {
+                card.remove();
+                this.atualizarRelatorio();
+                this._persistir();
+            }
         });
 
-        this.grid.addEventListener('input', () => this.atualizarRelatorio());
-        this.adicionar();
+        this.grid.addEventListener('input', () => {
+            this.atualizarRelatorio();
+            this._persistirDebounced();
+        });
+
+        const salvos = Storage.carregarResponsaveis();
+        if (salvos.length > 0) {
+            for (const r of salvos) this.adicionar(r);
+        } else {
+            this.adicionar();
+        }
     },
 
-    adicionar() {
+    adicionar(dadosIniciais) {
         const card = document.createElement('div');
         card.className = 'responsavel-card';
 
@@ -352,9 +378,9 @@ const Responsaveis = {
         row.className = 'responsavel-row';
 
         const fields = [
-            { cls: 'resp-nome', placeholder: 'Nome completo' },
-            { cls: 'resp-cargo', placeholder: 'Cargo / Função' },
-            { cls: 'resp-registro', placeholder: 'Registro / Matrícula' }
+            { cls: 'resp-nome', placeholder: 'Nome completo', valor: (dadosIniciais && dadosIniciais.nome) || '' },
+            { cls: 'resp-cargo', placeholder: 'Cargo / Função', valor: (dadosIniciais && dadosIniciais.cargo) || '' },
+            { cls: 'resp-registro', placeholder: 'Registro / Matrícula', valor: (dadosIniciais && dadosIniciais.registro) || '' }
         ];
 
         for (const f of fields) {
@@ -364,6 +390,7 @@ const Responsaveis = {
             input.type = 'text';
             input.className = f.cls;
             input.placeholder = f.placeholder;
+            input.value = f.valor;
             wrap.appendChild(input);
             row.appendChild(wrap);
         }
@@ -406,6 +433,15 @@ const Responsaveis = {
             frag.appendChild(card);
         }
         this.reportGrid.replaceChildren(frag);
+    },
+
+    _persistir() {
+        Storage.salvarResponsaveis(this.coletar());
+    },
+
+    _persistirDebounced() {
+        if (this._debTimer) clearTimeout(this._debTimer);
+        this._debTimer = setTimeout(() => this._persistir(), 400);
     }
 };
 
@@ -426,6 +462,7 @@ const Logo = {
         this.btnRemove.addEventListener('click', () => {
             State.logoDataURL = null;
             this.input.value = '';
+            Storage.salvarLogo(null);
             this.render();
         });
         this.input.addEventListener('change', (e) => {
@@ -437,10 +474,18 @@ const Logo = {
                 return;
             }
             const reader = new FileReader();
-            reader.onload = (ev) => { State.logoDataURL = ev.target.result; this.render(); };
+            reader.onload = (ev) => {
+                State.logoDataURL = ev.target.result;
+                Storage.salvarLogo(State.logoDataURL);
+                this.render();
+            };
             reader.onerror = () => alert('Erro ao ler a imagem.');
             reader.readAsDataURL(file);
         });
+
+        const logoSalvo = Storage.carregarLogo();
+        if (logoSalvo) State.logoDataURL = logoSalvo;
+
         this.render();
     },
 
@@ -472,6 +517,7 @@ const Logo = {
  * ---------------------------------------------------------------- */
 const Relatorio = {
     els: {},
+    _pressaoTimer: null,
 
     init() {
         this.els = {
@@ -485,36 +531,38 @@ const Relatorio = {
             reportEquip: document.getElementById('reportEquipamento'),
             reportEnd: document.getElementById('reportEndereco'),
             reportPressao: document.getElementById('reportPressaoTrabalho'),
+            reportAmostragem: document.getElementById('reportAmostragem'),
             reportClass: document.getElementById('reportClassificacao'),
             reportNivel: document.getElementById('reportNivel'),
             reportDataHora: document.getElementById('reportDataHora'),
             reportHeader: document.getElementById('reportHeader')
         };
 
-        this.els.pressao.addEventListener('input', () => this.atualizarPressaoDestaque());
         this.els.obs.addEventListener('input', () => this.atualizarObservacoes());
-
 
         [this.els.equipamento, this.els.endereco].forEach(el => {
             el.addEventListener('input', () => this.atualizarCabecalho());
         });
 
-        // Pressão de trabalho: ao mudar, atualiza destaque + cabeçalho
-        // Se houver dados processados, reanalisa automaticamente
         this.els.pressao.addEventListener('input', () => {
             this.atualizarPressaoDestaque();
             this.atualizarCabecalho();
 
-            // Reanalisa se já houver dados carregados
+            if (this._pressaoTimer) clearTimeout(this._pressaoTimer);
+            this._pressaoTimer = setTimeout(() => {
+                const v = parseFloat(this.els.pressao.value);
+                Storage.salvarPressao(Number.isFinite(v) && v > 0 ? v : null);
+            }, 400);
+
             if (State.dadosProcessados && State.rawPressures.length > 0) {
                 App.reanalisar();
             }
         });
 
-
         document.querySelectorAll('input[name="tipoManutencao"]').forEach(el => {
             el.addEventListener('change', () => this.atualizarCabecalho());
         });
+
         document.querySelectorAll('.nivel-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.nivel-btn').forEach(b => b.classList.remove('selected'));
@@ -523,7 +571,15 @@ const Relatorio = {
                 this.atualizarCabecalho();
             });
         });
+
         this.atualizarPressaoDestaque();
+
+        const pressaoSalva = Storage.carregarPressao();
+        if (pressaoSalva !== null) {
+            this.els.pressao.value = String(pressaoSalva);
+            this.atualizarPressaoDestaque();
+            this.atualizarCabecalho();
+        }
     },
 
     atualizarPressaoDestaque() {
@@ -531,7 +587,7 @@ const Relatorio = {
         const valido = Number.isFinite(valor) && valor > 0;
         this.els.pressao.classList.toggle('input-invalid', !valido);
         this.els.pressaoDestaque.textContent = valido
-            ? `${valor.toFixed(3)} Bar`
+            ? `${Utils.formatPressao(valor)} Bar`
             : '— Bar';
     },
 
@@ -554,8 +610,18 @@ const Relatorio = {
     atualizarCabecalho() {
         this.els.reportEquip.textContent = this.els.equipamento.value || '—';
         this.els.reportEnd.textContent = this.els.endereco.value || '—';
-        this.els.reportPressao.textContent = this.els.pressao.value
-            ? `${this.els.pressao.value} Bar` : '—';
+
+        const pv = parseFloat(this.els.pressao.value);
+        this.els.reportPressao.textContent = Number.isFinite(pv) && pv > 0
+            ? `${Utils.formatPressao(pv)} Bar` : '—';
+
+        if (this.els.reportAmostragem) {
+            this.els.reportAmostragem.textContent =
+                State.dadosProcessados
+                    ? Utils.formatAmostragem(State.amostragemSegundos)
+                    : '—';
+        }
+
         this.els.reportClass.textContent = this.getClassificacaoTexto();
 
         const nivel = State.nivelSelecionado;
@@ -568,32 +634,36 @@ const Relatorio = {
     limpar() {
         this.els.equipamento.value = '';
         this.els.endereco.value = '';
-        this.els.pressao.value = '';
+        // Pressão NÃO é limpa: fica persistida no localStorage
         this.els.obs.value = '';
+
         document.querySelectorAll('input[name="tipoManutencao"]').forEach(el => { el.checked = false; });
         document.querySelectorAll('.nivel-btn').forEach(b => b.classList.remove('selected'));
+
         State.nivelSelecionado = '';
+        if (!State.dadosProcessados) State.amostragemSegundos = 1;
+
         this.atualizarPressaoDestaque();
         this.atualizarObservacoes();
+
         if (!State.dadosProcessados) this.els.reportHeader.hidden = true;
         else this.atualizarCabecalho();
     }
 };
 
 /* ----------------------------------------------------------------
- * CANVAS CHART — picos coloridos por magnitude + estabilidades verdes
+ * CANVAS CHART
  * ---------------------------------------------------------------- */
 const CanvasChart = {
-    PAD: { top: 30, right: 30, bottom: 60, left: 70 },
+    PAD: { top: 20, right: 60, bottom: 40, left: 70 },
     COLORS: {
         line: '#6caddc',
         lineFill: 'rgba(108,173,220,0.12)',
-        grid: '#e2e8f0',
+        grid: '#eef2f6',
         axis: '#cbd5e1',
         text: '#5a6e7e',
         textTitle: '#7a8e9e',
-        stable: '#1a6e4a',
-        stableBorder: '#0a3e2a'
+        textGrid: '#7a8e9e'
     },
 
     canvas: null, ctx: null, tooltip: null,
@@ -601,14 +671,19 @@ const CanvasChart = {
 
     init() {
         this.canvas = document.getElementById('pressureChart');
+        if (!this.canvas) return;
         this.ctx = this.canvas.getContext('2d');
+
         this.tooltip = document.createElement('div');
         this.tooltip.className = 'chart-tooltip';
         this.tooltip.setAttribute('role', 'tooltip');
+        this.tooltip.setAttribute('aria-label', 'Detalhes do ponto de pressão');
+        this.tooltip.setAttribute('aria-live', 'polite');
         document.body.appendChild(this.tooltip);
 
         this._boundMove = (e) => this._onMouseMove(e);
         this._boundLeave = () => this._hideTooltip();
+
         this.canvas.addEventListener('mousemove', this._boundMove);
         this.canvas.addEventListener('mouseleave', this._boundLeave);
         this.canvas.addEventListener('touchstart', (e) => {
@@ -620,72 +695,203 @@ const CanvasChart = {
         this.canvas.addEventListener('touchend', this._boundLeave);
     },
 
+    /**
+     * Ajusta o canvas ao tamanho do container com DPR alto.
+     * Retorna { w, h } em pixels lógicos (CSS).
+     */
     _fitCanvas() {
-        const dpr = window.devicePixelRatio || 1;
-        const rect = this.canvas.getBoundingClientRect();
-        const cssW = Math.max(300, rect.width);
-        const cssH = Math.max(200, rect.height || 450);
-        this.canvas.width = Math.round(cssW * dpr);
-        this.canvas.height = Math.round(cssH * dpr);
-        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const dprReal = window.devicePixelRatio || 1;
+        const dpr = Math.min(Math.max(dprReal, 2), 4);
+
+        const container = this.canvas.parentElement;
+        const rectContainer = container
+            ? container.getBoundingClientRect()
+            : this.canvas.getBoundingClientRect();
+
+        const cssW = Math.max(400, Math.round(rectContainer.width - 30));
+        const cssH = 700;
+
+        const bitmapW = Math.round(cssW * dpr);
+        const bitmapH = Math.round(cssH * dpr);
+
+        if (this.canvas.width !== bitmapW || this.canvas.height !== bitmapH) {
+            this.canvas.width = bitmapW;
+            this.canvas.height = bitmapH;
+        }
+
+        this.canvas.style.width = cssW + 'px';
+        this.canvas.style.height = cssH + 'px';
+
+        const dprEfetivo = bitmapW / cssW;
+        this.ctx.setTransform(dprEfetivo, 0, 0, dprEfetivo, 0, 0);
+
+        this.ctx.imageSmoothingEnabled = true;
+        this.ctx.imageSmoothingQuality = 'high';
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+
         return { w: cssW, h: cssH };
     },
 
-    render(times, lineData, peaks, stables, refValue) {
+    render(times, lineData, refValue) {
         if (!this.canvas || !times.length) return;
+        if (!Array.isArray(lineData) || lineData.length < 2) return;
+        if (!Number.isFinite(refValue) || refValue <= 0) return;
+
         const { w, h } = this._fitCanvas();
+        this._renderInterno(times, lineData, refValue, w, h);
+    },
+
+    /**
+     * Renderiza em alta resolução para impressão.
+     * Usa dimensões fixas maiores + DPR 2.5.
+     */
+    renderParaImpressao(refValue) {
+        if (!State.currentChartData || !this.canvas) return;
+        if (!Number.isFinite(refValue) || refValue <= 0) return;
+
+        const times = State.currentChartData.times;
+        const lineData = State.currentChartData.lineData;
+
+        const dprImpressao = 2.5;
+        const cssW = 1100;
+        const cssH = 420;
+
+        this.canvas.width = Math.round(cssW * dprImpressao);
+        this.canvas.height = Math.round(cssH * dprImpressao);
+        this.canvas.style.width = cssW + 'px';
+        this.canvas.style.height = cssH + 'px';
+
+        this.ctx.setTransform(dprImpressao, 0, 0, dprImpressao, 0, 0);
+        this.ctx.imageSmoothingEnabled = true;
+        this.ctx.imageSmoothingQuality = 'high';
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+
+        this._renderInterno(times, lineData, refValue, cssW, cssH);
+    },
+
+    _renderInterno(times, lineData, refValue, w, h) {
         const { PAD, COLORS } = this;
+        const dprEfetivo = this.canvas.width / (w || 1);
         const plotW = w - PAD.left - PAD.right;
         const plotH = h - PAD.top - PAD.bottom;
 
         this.ctx.clearRect(0, 0, w, h);
 
         const vals = lineData.filter(Number.isFinite);
-        let minY = Math.min(...vals);
-        let maxY = Math.max(...vals);
-        const range = Math.max(maxY - minY, 0.001);
-        const margin = range * 0.1;
-        minY = Math.max(0, minY - margin);
-        maxY = maxY + margin;
+        if (vals.length === 0) return;
+
+        const yMax = refValue * 2;
+        const yMin = 0;
 
         const xOf = (i) => PAD.left + (i / (lineData.length - 1)) * plotW;
-        const yOf = (v) => PAD.top + plotH - ((v - minY) / (maxY - minY)) * plotH;
+        const yOf = (v) => PAD.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
 
-        // Grade
+        // ============================================================
+        // 1. GRADE EM BAR (passo = 20% da referência)
+        // ============================================================
+        const passo = refValue * 0.2;
+        let casas = 2;
+        if (passo < 0.1) casas = 3;
+        else if (passo >= 10) casas = 0;
+
+        this.ctx.save();
         this.ctx.font = '11px "Segoe UI", sans-serif';
-        this.ctx.fillStyle = COLORS.text;
+        this.ctx.textAlign = 'right';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.setLineDash([]);
         this.ctx.strokeStyle = COLORS.grid;
         this.ctx.lineWidth = 1;
-        for (let s = 0; s <= 5; s++) {
-            const v = minY + ((maxY - minY) * s) / 5;
-            const y = yOf(v);
+
+        for (let v = 0; v <= yMax + 0.0001; v += passo) {
+            const valor = Math.round(v * 10000) / 10000;
+            const y = Math.round(yOf(valor)) + 0.5;
+            if (y < PAD.top - 1 || y > PAD.top + plotH + 1) continue;
+
             this.ctx.beginPath();
             this.ctx.moveTo(PAD.left, y);
             this.ctx.lineTo(PAD.left + plotW, y);
             this.ctx.stroke();
-            this.ctx.textAlign = 'right';
+
+            this.ctx.fillStyle = COLORS.textGrid;
+            this.ctx.fillText(valor.toFixed(casas), PAD.left - 8, y);
+        }
+        this.ctx.restore();
+
+        // ============================================================
+        // 2. LINHAS DAS FAIXAS PERCENTUAIS
+        // ============================================================
+        const faixas = CONFIG.FAIXAS_PCT;
+
+        for (const pct of faixas) {
+            const valor = refValue * (pct / 100);
+            const y = Math.round(yOf(valor)) + 0.5;
+            if (y < PAD.top - 5 || y > PAD.top + plotH + 5) continue;
+
+            const cor = PALETA_FAIXAS[String(pct)] || { fill: '#999', border: '#666' };
+            const ehReferencia = (pct === 100);
+            const ehZero = (pct === 0);
+
+            let lw = 1;
+            if (ehReferencia) lw = 2;
+            else if (ehZero) lw = 1.5;
+            if (dprEfetivo >= 3 && !ehReferencia) lw = Math.max(lw, 1.2);
+
+            this.ctx.save();
+            this.ctx.strokeStyle = cor.fill;
+            this.ctx.lineWidth = lw;
+            this.ctx.setLineDash(ehReferencia ? [] : [5, 4]);
+            this.ctx.beginPath();
+            this.ctx.moveTo(PAD.left, y);
+            this.ctx.lineTo(PAD.left + plotW, y);
+            this.ctx.stroke();
+            this.ctx.restore();
+
+            this.ctx.font = ehReferencia
+                ? 'bold 11px "Segoe UI", sans-serif'
+                : '10px "Segoe UI", sans-serif';
+            this.ctx.fillStyle = cor.fill;
+            this.ctx.textAlign = 'left';
             this.ctx.textBaseline = 'middle';
-            this.ctx.fillText(v.toFixed(3), PAD.left - 8, y);
+            this.ctx.fillText(`${pct}%`, PAD.left + plotW + 6, y);
         }
 
-        // Eixos
+        // ============================================================
+        // 3. EIXOS
+        // ============================================================
         this.ctx.strokeStyle = COLORS.axis;
+        this.ctx.lineWidth = 1;
+        this.ctx.setLineDash([]);
         this.ctx.beginPath();
-        this.ctx.moveTo(PAD.left, PAD.top);
-        this.ctx.lineTo(PAD.left, PAD.top + plotH);
-        this.ctx.lineTo(PAD.left + plotW, PAD.top + plotH);
+        this.ctx.moveTo(Math.round(PAD.left) + 0.5, PAD.top);
+        this.ctx.lineTo(Math.round(PAD.left) + 0.5, Math.round(PAD.top + plotH) + 0.5);
+        this.ctx.lineTo(PAD.left + plotW, Math.round(PAD.top + plotH) + 0.5);
         this.ctx.stroke();
 
-        // Labels X
-        const step = Math.max(1, Math.ceil(lineData.length / 10));
+        // ============================================================
+        // 4. LABELS X (tempo) — sem sobreposição
+        // ============================================================
         this.ctx.fillStyle = COLORS.text;
+        this.ctx.font = '11px "Segoe UI", sans-serif';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'top';
+
+        const larguraMinLabel = 60;
+        const maxLabels = Math.max(2, Math.floor(plotW / larguraMinLabel));
+        const step = Math.max(1, Math.ceil(lineData.length / maxLabels));
+
         for (let i = 0; i < lineData.length; i += step) {
-            this.ctx.fillText(Utils.extractTimeOnly(times[i]), xOf(i), PAD.top + plotH + 8);
+            this.ctx.fillText(
+                Utils.extractTimeOnly(times[i]),
+                xOf(i),
+                PAD.top + plotH + 8
+            );
         }
 
-        // Título Y
+        // ============================================================
+        // 5. TÍTULO EIXO Y
+        // ============================================================
         this.ctx.save();
         this.ctx.translate(18, PAD.top + plotH / 2);
         this.ctx.rotate(-Math.PI / 2);
@@ -696,11 +902,18 @@ const CanvasChart = {
         this.ctx.fillText('Pressão (Bar)', 0, 0);
         this.ctx.restore();
 
-        // Linha + fill
+        // ============================================================
+        // 6. CURVA DE PRESSÃO
+        // ============================================================
+        // Fill
         this.ctx.beginPath();
         for (let i = 0; i < lineData.length; i++) {
-            const x = xOf(i), y = yOf(lineData[i]);
-            if (i === 0) this.ctx.moveTo(x, y); else this.ctx.lineTo(x, y);
+            const v = Number(lineData[i]);
+            if (!Number.isFinite(v)) continue;
+            const x = xOf(i);
+            const y = yOf(Math.max(yMin, Math.min(yMax, v)));
+            if (i === 0) this.ctx.moveTo(x, y);
+            else this.ctx.lineTo(x, y);
         }
         this.ctx.lineTo(xOf(lineData.length - 1), PAD.top + plotH);
         this.ctx.lineTo(xOf(0), PAD.top + plotH);
@@ -708,58 +921,34 @@ const CanvasChart = {
         this.ctx.fillStyle = COLORS.lineFill;
         this.ctx.fill();
 
+        // Linha
         this.ctx.beginPath();
+        let primeiro = true;
         for (let i = 0; i < lineData.length; i++) {
-            const x = xOf(i), y = yOf(lineData[i]);
-            if (i === 0) this.ctx.moveTo(x, y); else this.ctx.lineTo(x, y);
+            const v = Number(lineData[i]);
+            if (!Number.isFinite(v)) {
+                primeiro = true;
+                continue;
+            }
+            const x = xOf(i);
+            const y = yOf(Math.max(yMin, Math.min(yMax, v)));
+            if (primeiro) {
+                this.ctx.moveTo(x, y);
+                primeiro = false;
+            } else {
+                this.ctx.lineTo(x, y);
+            }
         }
         this.ctx.strokeStyle = COLORS.line;
-        this.ctx.lineWidth = 2;
+        this.ctx.lineWidth = (dprEfetivo >= 3) ? 2.2 : 2;
+        this.ctx.setLineDash([]);
         this.ctx.stroke();
 
-        // === MARCADORES ===
-        // 1) Picos coloridos por magnitude
-        for (const p of peaks) {
-            const cor = PEAK_COLORS.classificacao(p.variacaoPercentual);
-            this._drawCircle(xOf(p.index), yOf(p.value), cor.fill, cor.border, 7);
-        }
-
-        // 2) Estabilidades — losango verde-escuro, sempre por cima
-        for (const s of stables) {
-            this._drawDiamond(xOf(s.index), yOf(s.value), COLORS.stable, COLORS.stableBorder, 7);
-        }
-
-        this._last = { times, lineData, peaks, stables, xOf, PAD, plotW, plotH, refValue };
-    },
-
-    _drawCircle(x, y, fill, border, size) {
-        const ctx = this.ctx;
-        ctx.save();
-        ctx.fillStyle = fill;
-        ctx.strokeStyle = border;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-    },
-
-    _drawDiamond(x, y, fill, border, size) {
-        const ctx = this.ctx;
-        ctx.save();
-        ctx.fillStyle = fill;
-        ctx.strokeStyle = border;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(x, y - size);
-        ctx.lineTo(x + size, y);
-        ctx.lineTo(x, y + size);
-        ctx.lineTo(x - size, y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
+        this._last = {
+            times, lineData, refValue,
+            xOf, yOf, PAD, plotW, plotH,
+            yMin, yMax
+        };
     },
 
     _onMouseMove(evt) {
@@ -767,7 +956,8 @@ const CanvasChart = {
         const rect = this.canvas.getBoundingClientRect();
         const x = evt.clientX - rect.left;
         const y = evt.clientY - rect.top;
-        const { times, lineData, peaks, stables, xOf, PAD, plotW, plotH, refValue } = this._last;
+        const { times, lineData, xOf, PAD, plotW, plotH, refValue } = this._last;
+
         if (x < PAD.left || x > PAD.left + plotW) return this._hideTooltip();
         if (y < PAD.top || y > PAD.top + plotH) return this._hideTooltip();
 
@@ -777,22 +967,14 @@ const CanvasChart = {
             if (d < minDist) { minDist = d; closest = i; }
         }
 
-        const diff = Utils.calcularDiferencaPercentual(lineData[closest], refValue);
-        const sinal = diff >= 0 ? '+' : '';
-
-        let extra = '';
-        const isPeak = peaks.find(p => p.index === closest);
-        const isStable = stables.find(s => s.index === closest);
-        if (isStable) extra = '\n🟢 Início de estabilidade';
-        else if (isPeak) {
-            const cor = PEAK_COLORS.classificacao(isPeak.variacaoPercentual);
-            extra = `\n🔴 Pico ${cor.label}`;
-        }
+        const valor = lineData[closest];
+        const pct = (valor / refValue) * 100;
 
         const texto =
-            `Pressão: ${lineData[closest].toFixed(4)} Bar\n` +
+            `Pressão: ${Utils.formatPressao(valor)} Bar\n` +
             `⏱️ ${times[closest]}\n` +
-            `📊 Diferença: ${sinal}${diff.toFixed(2)}%` + extra;
+            `📊 ${pct.toFixed(1)}% da pressão de trabalho`;
+
         this._showTooltip(evt.clientX, evt.clientY, texto);
     },
 
@@ -809,12 +991,15 @@ const CanvasChart = {
         if (!State.currentChartData) return;
         if (document.getElementById('chartContainer').hidden) return;
         const ref = Utils.getPressaoReferencia();
-        this.render(
+        if (!Number.isFinite(ref) || ref <= 0) return;
+
+        // Restaura dimensões normais via _fitCanvas + render
+        const { w, h } = this._fitCanvas();
+        this._renderInterno(
             State.currentChartData.times,
             State.currentChartData.lineData,
-            State.currentPeaks,
-            State.currentStablePoints,
-            ref
+            ref,
+            w, h
         );
     },
 
@@ -828,259 +1013,42 @@ const CanvasChart = {
 };
 
 /* ----------------------------------------------------------------
- * TABELAS
+ * TABELA — resumo de faixas atingidas
  * ---------------------------------------------------------------- */
 const Tabela = {
-    /* --------------------------------------------------------------
-     * RESUMO DE PICOS POR FAIXA
-     * -------------------------------------------------------------- */
-    renderPicos(peaks, times) {
-        const badge = document.getElementById('picosCountBadge');
-        const container = document.getElementById('picosTableContainer');
-        const tableDiv = document.getElementById('picosTable');
-
-        badge.textContent = `${peaks.length} pico${peaks.length !== 1 ? 's' : ''}`;
-        container.hidden = false;
-
-        if (peaks.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'empty-state';
-            empty.textContent = '⚠️ Nenhum pico detectado nos dados analisados.';
-            tableDiv.replaceChildren(empty);
-            return;
-        }
-
-        const pressaoRef = Utils.getPressaoReferencia();
-
-        // ---- Agrupa picos por faixa ----
-        const faixas = new Map();
-
-        for (const pico of peaks) {
-            const diff = Utils.calcularDiferencaPercentual(pico.value, pressaoRef);
-            const cor = PEAK_COLORS.classificacao(diff);
-            const chave = cor.label;
-
-            if (!faixas.has(chave)) {
-                faixas.set(chave, {
-                    cor,
-                    count: 0,
-                    minPct: Math.abs(diff),
-                    maxPct: Math.abs(diff)
-                });
-            }
-            const f = faixas.get(chave);
-            f.count++;
-            const abs = Math.abs(diff);
-            f.minPct = Math.min(f.minPct, abs);
-            f.maxPct = Math.max(f.maxPct, abs);
-        }
-
-        // ---- Ordena por faixa crescente ----
-        const ordemFaixas = ['5-9%', '≥ 10%', '≥ 20%', '≥ 30%', '≥ 35%', '≥ 40%', '≥ 50%', '≥ 60%', '≥ 80%'];
-        const faixasOrdenadas = ordemFaixas
-            .filter(label => faixas.has(label))
-            .map(label => ({ label, ...faixas.get(label) }));
-
-        const total = peaks.length;
-
-        // ---- Faixa mais comum ----
-        let maisComum = faixasOrdenadas[0];
-        for (const f of faixasOrdenadas) {
-            if (f.count > maisComum.count) maisComum = f;
-        }
-
-        // ---- Constrói wrapper ----
-        const wrapper = document.createElement('div');
-
-        // Destaque
-        const destaque = document.createElement('div');
-        destaque.className = 'picos-destaque';
-
-        destaque.appendChild(this._buildDestaque('Total de picos', String(total)));
-        destaque.appendChild(this._buildDestaque(
-            'Faixa mais comum',
-            `${maisComum.label} (${maisComum.count}x)`,
-            'cor-comum'
-        ));
-        destaque.appendChild(this._buildDestaque('Faixas atingidas', String(faixasOrdenadas.length)));
-        wrapper.appendChild(destaque);
-
-        // Subtítulo
-        const sub = document.createElement('p');
-        sub.className = 'picos-subtitulo';
-        sub.textContent = 'Contagem de picos agrupados por magnitude (percentual acima da pressão de trabalho).';
-        wrapper.appendChild(sub);
-
-        // Tabela
-        const table = document.createElement('table');
-        table.className = 'picos-resumo';
-
-        const thead = document.createElement('thead');
-        const headRow = document.createElement('tr');
-        for (const label of ['Faixa', 'Quantidade', '% do total', 'Distribuição']) {
-            const th = document.createElement('th');
-            th.textContent = label;
-            headRow.appendChild(th);
-        }
-        thead.appendChild(headRow);
-        table.appendChild(thead);
-
-        const tbody = document.createElement('tbody');
-
-        for (const f of faixasOrdenadas) {
-            const tr = document.createElement('tr');
-
-            // Faixa com bolinha colorida
-            const tdFaixa = document.createElement('td');
-
-            const dot = document.createElement('span');
-            dot.className = 'picos-dot ' + this._classeCorPorLabel(f.label);
-
-            tdFaixa.appendChild(dot);
-            tdFaixa.appendChild(document.createTextNode(f.label));
-            tr.appendChild(tdFaixa);
-
-            // Quantidade
-            const tdQtd = document.createElement('td');
-            tdQtd.className = 'col-center';
-            const strongQtd = document.createElement('strong');
-            strongQtd.textContent = String(f.count);
-            tdQtd.appendChild(strongQtd);
-            tr.appendChild(tdQtd);
-
-            // % do total
-            const pct = (f.count / total) * 100;
-            const tdPct = document.createElement('td');
-            tdPct.className = 'col-center';
-            tdPct.textContent = `${pct.toFixed(1)}%`;
-            tr.appendChild(tdPct);
-
-            // Barra visual — largura via classe pré-definida
-            const tdBarr = document.createElement('td');
-            tdBarr.className = 'col-barra';
-            const barra = document.createElement('div');
-            barra.className = 'picos-barra ' + this._classeCorBarraPorLabel(f.label) + ' ' + this._classeLargura(pct);
-            tdBarr.appendChild(barra);
-            tr.appendChild(tdBarr);
-
-            tbody.appendChild(tr);
-        }
-
-        // Linha de total
-        const trTotal = document.createElement('tr');
-        trTotal.className = 'row-total';
-
-        const tdTotal = document.createElement('td');
-        const strongTotal = document.createElement('strong');
-        strongTotal.textContent = 'TOTAL';
-        tdTotal.appendChild(strongTotal);
-        trTotal.appendChild(tdTotal);
-
-        const tdQtdTotal = document.createElement('td');
-        tdQtdTotal.className = 'col-center';
-        const strongQtdT = document.createElement('strong');
-        strongQtdT.textContent = String(total);
-        tdQtdTotal.appendChild(strongQtdT);
-        trTotal.appendChild(tdQtdTotal);
-
-        const tdPctTotal = document.createElement('td');
-        tdPctTotal.className = 'col-center';
-        const strongPctT = document.createElement('strong');
-        strongPctT.textContent = '100.0%';
-        tdPctTotal.appendChild(strongPctT);
-        trTotal.appendChild(tdPctTotal);
-
-        trTotal.appendChild(document.createElement('td'));
-        tbody.appendChild(trTotal);
-
-        table.appendChild(tbody);
-        wrapper.appendChild(table);
-
-        tableDiv.replaceChildren(wrapper);
-    },
-
-    /* -------- helpers internos para CSP-safe -------- */
-    _buildDestaque(label, valor, classeExtra) {
-        const item = document.createElement('div');
-        item.className = 'picos-destaque-item';
-
-        const l = document.createElement('span');
-        l.className = 'picos-destaque-label';
-        l.textContent = label;
-
-        const v = document.createElement('span');
-        v.className = 'picos-destaque-valor' + (classeExtra ? ' ' + classeExtra : '');
-        v.textContent = valor;
-
-        item.append(l, v);
-        return item;
-    },
-
-    _classeCorPorLabel(label) {
-        return {
-            '5-9%':  'dot-5',
-            '≥ 10%': 'dot-10',
-            '≥ 20%': 'dot-20',
-            '≥ 30%': 'dot-30',
-            '≥ 35%': 'dot-35',
-            '≥ 40%': 'dot-40',
-            '≥ 50%': 'dot-50',
-            '≥ 60%': 'dot-60',
-            '≥ 80%': 'dot-80'
-        }[label] || 'dot-5';
-    },
-
-    _classeCorBarraPorLabel(label) {
-        return {
-            '5-9%':  'bar-5',
-            '≥ 10%': 'bar-10',
-            '≥ 20%': 'bar-20',
-            '≥ 30%': 'bar-30',
-            '≥ 35%': 'bar-35',
-            '≥ 40%': 'bar-40',
-            '≥ 50%': 'bar-50',
-            '≥ 60%': 'bar-60',
-            '≥ 80%': 'bar-80'
-        }[label] || 'bar-5';
-    },
-
-    /**
-     * Converte um percentual (0-100) em uma classe tipo "w-42".
-     * O CSS precisa ter .w-0 até .w-100.
-     */
-    _classeLargura(pct) {
-        const n = Math.max(0, Math.min(100, Math.round(pct / 5) * 5));
-        return 'w-' + n;
-    },
-
-    /* --------------------------------------------------------------
-     * ESTABILIDADES
-     * -------------------------------------------------------------- */
-    renderStabilidades(points) {
-        const badge = document.getElementById('estabCountBadge');
-        const container = document.getElementById('estabTableContainer');
-        const tableDiv = document.getElementById('estabTable');
+    renderFaixas(faixasResultado, duracaoTotalSeg) {
+        const container = document.getElementById('faixasTableContainer');
+        const tableDiv = document.getElementById('faixasTable');
+        const badge = document.getElementById('faixasCountBadge');
 
         if (!container || !tableDiv) return;
 
-        const inicios = points.filter(p => p.papel !== 'fim');
-        const total = inicios.length;
-
-        badge.textContent = `${total} estabilidade${total !== 1 ? 's' : ''}`;
-        container.hidden = false;
-
-        if (total === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'empty-state';
-            empty.textContent = '⚠️ Nenhum período estável (>3 min) detectado.';
-            tableDiv.replaceChildren(empty);
+        if (!faixasResultado || faixasResultado.length === 0) {
+            badge.textContent = '0 faixas';
+            container.hidden = true;
             return;
         }
 
+        const atingidas = faixasResultado.filter(f => f.ocorrencias > 0);
+        badge.textContent = `${atingidas.length} faixa${atingidas.length !== 1 ? 's' : ''} atingida${atingidas.length !== 1 ? 's' : ''}`;
+
+        if (atingidas.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = '⚠️ Nenhuma faixa foi atingida nos dados analisados.';
+            tableDiv.replaceChildren(empty);
+            container.hidden = false;
+            return;
+        }
+
+        atingidas.sort((a, b) => b.pct - a.pct);
+
         const table = document.createElement('table');
+        table.className = 'faixas-resumo';
+
         const thead = document.createElement('thead');
         const headRow = document.createElement('tr');
-        for (const label of ['#', 'Início', 'Fim', 'Duração', 'Pressão (Bar)']) {
+        for (const label of ['Faixa', 'Valor (Bar)', 'Ocorrências', 'Tempo total', '% do tempo']) {
             const th = document.createElement('th');
             th.textContent = label;
             headRow.appendChild(th);
@@ -1089,50 +1057,72 @@ const Tabela = {
         table.appendChild(thead);
 
         const tbody = document.createElement('tbody');
-        inicios.forEach((p, idx) => {
+        for (const f of atingidas) {
             const tr = document.createElement('tr');
-            const cells = [
-                { text: String(idx + 1), strong: true },
-                { text: Utils.extractTimeOnly(p.time) },
-                { text: Utils.extractTimeOnly(p.timeFim) },
-                { text: Utils.formatDuracao(p.duracaoSegundos) },
-                { text: p.value.toFixed(4) }
-            ];
-            for (const c of cells) {
-                const td = document.createElement('td');
-                if (c.strong) {
-                    const s = document.createElement('strong');
-                    s.textContent = c.text;
-                    td.appendChild(s);
-                } else {
-                    td.textContent = c.text;
-                }
-                tr.appendChild(td);
-            }
+
+            const tdFaixa = document.createElement('td');
+            const cor = PALETA_FAIXAS[String(f.pct)] || { fill: '#999', border: '#666' };
+            const dot = document.createElement('span');
+            dot.className = 'faixa-dot';
+            dot.style.background = cor.fill;
+            dot.style.borderColor = cor.border;
+            tdFaixa.appendChild(dot);
+            tdFaixa.appendChild(document.createTextNode(`${f.pct}%`));
+            tr.appendChild(tdFaixa);
+
+            const tdValor = document.createElement('td');
+            tdValor.textContent = Utils.formatPressao(f.valorBar);
+            tr.appendChild(tdValor);
+
+            const tdOcor = document.createElement('td');
+            tdOcor.className = 'col-center';
+            const strong = document.createElement('strong');
+            strong.textContent = String(f.ocorrencias);
+            tdOcor.appendChild(strong);
+            tr.appendChild(tdOcor);
+
+            const tdTempo = document.createElement('td');
+            tdTempo.textContent = Utils.formatDuracao(f.tempoTotalSeg);
+            tr.appendChild(tdTempo);
+
+            const tdPct = document.createElement('td');
+            tdPct.className = 'col-center';
+            const pctTempo = duracaoTotalSeg > 0
+                ? (f.tempoTotalSeg / duracaoTotalSeg) * 100
+                : 0;
+            tdPct.textContent = `${pctTempo.toFixed(1)}%`;
+            tr.appendChild(tdPct);
+
             tbody.appendChild(tr);
-        });
+        }
         table.appendChild(tbody);
         tableDiv.replaceChildren(table);
+        container.hidden = false;
     },
 
-    /* --------------------------------------------------------------
-     * ESTATÍSTICAS
-     * -------------------------------------------------------------- */
-    renderStats(pressures, peaks, stables) {
+    renderStats(pressures, faixasResultado) {
+        if (!Array.isArray(pressures) || pressures.length === 0) return;
+
         const maxP = Math.max(...pressures);
         const minP = Math.min(...pressures);
         const avgP = pressures.reduce((a, b) => a + b, 0) / pressures.length;
         const pressaoRef = Utils.getPressaoReferencia();
 
-        const totalEstab = stables.filter(s => s.papel !== 'fim').length;
+        let faixaMax = null;
+        if (faixasResultado) {
+            const atingidas = faixasResultado.filter(f => f.ocorrencias > 0);
+            if (atingidas.length > 0) {
+                faixaMax = atingidas.reduce((a, b) => a.pct > b.pct ? a : b);
+            }
+        }
 
         const stats = [
-            { value: maxP.toFixed(3), label: 'Máxima Geral' },
-            { value: minP.toFixed(3), label: 'Mínima Geral' },
-            { value: avgP.toFixed(3), label: 'Média' },
-            { value: pressaoRef.toFixed(3), label: 'Referência' },
-            { value: peaks.length, label: 'Total Picos' },
-            { value: totalEstab, label: 'Estabilidades' }
+            { value: Utils.formatPressao(maxP), label: 'Máxima Geral' },
+            { value: Utils.formatPressao(minP), label: 'Mínima Geral' },
+            { value: Utils.formatPressao(avgP), label: 'Média' },
+            { value: Utils.formatPressao(pressaoRef), label: 'Referência' },
+            { value: faixaMax ? `${faixaMax.pct}%` : '—', label: 'Faixa Máx.' },
+            { value: faixasResultado ? faixasResultado.filter(f => f.ocorrencias > 0).length : 0, label: 'Faixas Ating.' }
         ];
 
         const row = document.getElementById('statsRow');
@@ -1160,10 +1150,47 @@ const Tabela = {
 const Processador = {
     MAX_FILE_SIZE: 50 * 1024 * 1024,
 
+    _detectarAmostragem(times) {
+        if (!Array.isArray(times) || times.length < 3) return 1;
+        const TAXAS_CONHECIDAS = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300];
+        const N_MAX = Math.min(30, times.length - 1);
+        const intervalos = [];
+
+        for (let i = 1; i <= N_MAX; i++) {
+            const t1 = Utils.parseTimeToSeconds(times[i - 1]);
+            const t2 = Utils.parseTimeToSeconds(times[i]);
+            if (!Number.isFinite(t1) || !Number.isFinite(t2)) continue;
+            let diff = t2 - t1;
+            if (diff < 0) diff += 24 * 3600;
+            if (diff > 0 && diff <= 300) intervalos.push(diff);
+        }
+
+        if (intervalos.length === 0) return 1;
+
+        intervalos.sort((a, b) => a - b);
+        const meio = Math.floor(intervalos.length / 2);
+        const mediana = intervalos.length % 2 === 0
+            ? (intervalos[meio - 1] + intervalos[meio]) / 2
+            : intervalos[meio];
+
+        let melhorTaxa = 1, melhorDistancia = Infinity;
+        for (const taxa of TAXAS_CONHECIDAS) {
+            const distancia = Math.abs(taxa - mediana);
+            if (distancia < melhorDistancia) {
+                melhorDistancia = distancia;
+                melhorTaxa = taxa;
+            }
+        }
+
+        if (melhorDistancia / melhorTaxa > 0.4) {
+            return Math.max(1, Math.round(mediana));
+        }
+        return melhorTaxa;
+    },
+
     processarTexto(text) {
         this._esconderErro();
 
-        // 1. Valida a pressão de referência ANTES de tudo
         const pressaoRef = Utils.getPressaoReferencia();
         if (!Number.isFinite(pressaoRef) || pressaoRef <= 0) {
             this._erro('⚠️ Informe a Pressão de Trabalho (100%) antes de carregar o CSV.');
@@ -1171,16 +1198,13 @@ const Processador = {
             return;
         }
 
-        // 2. Agora sim, limpa os dados da análise anterior
         App.limparDados();
 
-        // 3. Valida o texto
         if (!text || typeof text !== 'string') {
             this._erro('Arquivo vazio ou inválido.');
             return;
         }
 
-        // 4. Parse do CSV
         let rows;
         try { rows = CSVParser.parse(text); }
         catch (err) { this._erro('Erro ao analisar CSV: ' + err.message); return; }
@@ -1216,42 +1240,39 @@ const Processador = {
             return;
         }
 
-        // 5. Detecção
+        const amostragemSegundos = this._detectarAmostragem(times);
+        CONFIG._sampleRate = amostragemSegundos;
+        State.amostragemSegundos = amostragemSegundos;
+
         State.rawTimes = times;
         State.rawPressures = pressures;
-        State.currentPeaks = Detector.detectPeaks(pressures, pressaoRef);
-        State.currentStablePoints = Detector.detectStabilityStarts(pressures, times, pressaoRef);
 
-        // 6. Renderização
-        Tabela.renderPicos(State.currentPeaks, times);
-        Tabela.renderStabilidades(State.currentStablePoints);
-        Tabela.renderStats(pressures, State.currentPeaks, State.currentStablePoints);
+        const faixasResultado = AnalisadorFaixas.analisar(times, pressures, pressaoRef);
+        State.faixasResultado = faixasResultado;
 
-        State.currentChartData = {
-            times: [...times],
-            lineData: [...pressures]
-        };
+        const t0 = Utils.parseTimeToSeconds(times[0]);
+        const tN = Utils.parseTimeToSeconds(times[times.length - 1]);
+        let duracaoTotalSeg = 0;
+        if (Number.isFinite(t0) && Number.isFinite(tN)) {
+            duracaoTotalSeg = tN - t0;
+            if (duracaoTotalSeg < 0) duracaoTotalSeg += 24 * 3600;
+        }
+
+        Tabela.renderFaixas(faixasResultado, duracaoTotalSeg);
+        Tabela.renderStats(pressures, faixasResultado);
+
+        State.currentChartData = { times: [...times], lineData: [...pressures] };
 
         document.getElementById('chartContainer').hidden = false;
-        CanvasChart.render(
-            times,
-            pressures,
-            State.currentPeaks,
-            State.currentStablePoints,
-            pressaoRef
-        );
+        CanvasChart.render(times, pressures, pressaoRef);
         this._updateLegend(times);
 
         State.dadosProcessados = true;
         Relatorio.atualizarCabecalho();
         document.getElementById('reportHeader').hidden = false;
 
-        if (document.querySelectorAll('.responsavel-card').length === 0) {
-            Responsaveis.adicionar();
-        }
-
         const fileInfo = document.getElementById('fileInfo');
-        fileInfo.textContent += ` — ${times.length.toLocaleString('pt-BR')} medições processadas`;
+        fileInfo.textContent = `${fileInfo.dataset.filename || 'arquivo'} — ${times.length.toLocaleString('pt-BR')} medições processadas`;
     },
 
     _updateLegend(times) {
@@ -1273,9 +1294,7 @@ const Processador = {
         el.hidden = false;
         document.getElementById('chartContainer').hidden = true;
         document.getElementById('chartLegend').hidden = true;
-        document.getElementById('picosTableContainer').hidden = true;
-        const e = document.getElementById('estabTableContainer');
-        if (e) e.hidden = true;
+        document.getElementById('faixasTableContainer').hidden = true;
         document.getElementById('statsRow').hidden = true;
         State.dadosProcessados = false;
     },
@@ -1310,13 +1329,13 @@ const App = {
             const file = e.target.files[0];
             if (!file) return;
 
-            // Bloqueia se pressão de referência estiver vazia
             const ref = Utils.getPressaoReferencia();
             if (!Number.isFinite(ref) || ref <= 0) {
                 alert('⚠️ Informe a Pressão de Trabalho (100%) antes de carregar o CSV.');
                 document.getElementById('pressaoTrabalho').focus();
                 input.value = '';
                 fileInfo.textContent = 'Nenhum arquivo selecionado';
+                delete fileInfo.dataset.filename;
                 return;
             }
 
@@ -1324,9 +1343,13 @@ const App = {
                 alert('Arquivo muito grande! Limite: 50 MB.');
                 input.value = '';
                 fileInfo.textContent = 'Nenhum arquivo selecionado';
+                delete fileInfo.dataset.filename;
                 return;
             }
+
+            fileInfo.dataset.filename = file.name;
             fileInfo.textContent = `${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
+
             const reader = new FileReader();
             reader.onload = (ev) => Processador.processarTexto(String(ev.target.result || ''));
             reader.onerror = () => Processador._erro('Erro ao ler o arquivo.');
@@ -1335,32 +1358,35 @@ const App = {
     },
 
     _bindAcoes() {
-        document.getElementById('btnLimparFormulario').addEventListener('click', () => {
+        document.getElementById('btnLimparFormulario').addEventListener('click', (e) => {
+            if (e.shiftKey) {
+                if (!confirm('Isso vai apagar logo, responsáveis e pressão salvos. Continuar?')) return;
+                Storage.salvarLogo(null);
+                Storage.salvarResponsaveis([]);
+                Storage.salvarPressao(null);
+                State.logoDataURL = null;
+                Logo.render();
+                Responsaveis.grid.replaceChildren();
+                Responsaveis.adicionar();
+                Relatorio.els.pressao.value = '';
+                Relatorio.atualizarPressaoDestaque();
+            }
             Relatorio.limpar();
-            Responsaveis.grid.replaceChildren();
-            State.nextResponsavelId = 1;
-            Responsaveis.adicionar();
         });
+
         document.getElementById('btnLimparDados').addEventListener('click', () => this.limparDados());
         document.getElementById('btnImprimir').addEventListener('click', () => this.imprimir());
     },
 
-    /* --------------------------------------------------------------
-     * Reanalisa os dados já carregados com a nova referência
-     * Chamado quando o usuário edita a pressão de trabalho
-     * -------------------------------------------------------------- */
     reanalisar() {
         if (!State.rawPressures.length || !State.rawTimes.length) return;
 
         const pressaoRef = Utils.getPressaoReferencia();
         if (!Number.isFinite(pressaoRef) || pressaoRef <= 0) {
-            // Referência inválida: limpa o gráfico
             CanvasChart.destruir();
             document.getElementById('chartContainer').hidden = true;
             document.getElementById('chartLegend').hidden = true;
-            document.getElementById('picosTableContainer').hidden = true;
-            const e = document.getElementById('estabTableContainer');
-            if (e) e.hidden = true;
+            document.getElementById('faixasTableContainer').hidden = true;
             document.getElementById('statsRow').hidden = true;
             State.dadosProcessados = false;
             return;
@@ -1369,45 +1395,42 @@ const App = {
         const times = State.rawTimes;
         const pressures = State.rawPressures;
 
-        // Reanalisa tudo com a nova referência
-        State.currentPeaks = Detector.detectPeaks(pressures, pressaoRef);
-        State.currentStablePoints = Detector.detectStabilityStarts(pressures, times, pressaoRef);
+        const faixasResultado = AnalisadorFaixas.analisar(times, pressures, pressaoRef);
+        State.faixasResultado = faixasResultado;
 
-        Tabela.renderPicos(State.currentPeaks, times);
-        Tabela.renderStabilidades(State.currentStablePoints);
-        Tabela.renderStats(pressures, State.currentPeaks, State.currentStablePoints);
+        const t0 = Utils.parseTimeToSeconds(times[0]);
+        const tN = Utils.parseTimeToSeconds(times[times.length - 1]);
+        let duracaoTotalSeg = 0;
+        if (Number.isFinite(t0) && Number.isFinite(tN)) {
+            duracaoTotalSeg = tN - t0;
+            if (duracaoTotalSeg < 0) duracaoTotalSeg += 24 * 3600;
+        }
 
-        State.currentChartData = {
-            times: [...times],
-            lineData: [...pressures]
-        };
+        Tabela.renderFaixas(faixasResultado, duracaoTotalSeg);
+        Tabela.renderStats(pressures, faixasResultado);
 
+        State.currentChartData = { times: [...times], lineData: [...pressures] };
         document.getElementById('chartContainer').hidden = false;
-        CanvasChart.render(
-            times,
-            pressures,
-            State.currentPeaks,
-            State.currentStablePoints,
-            pressaoRef
-        );
+        CanvasChart.render(times, pressures, pressaoRef);
+        Processador._updateLegend(times);
 
         State.dadosProcessados = true;
         Relatorio.atualizarCabecalho();
         document.getElementById('reportHeader').hidden = false;
     },
 
-
-
     limparDados() {
         CanvasChart.destruir();
         document.getElementById('chartContainer').hidden = true;
         document.getElementById('chartLegend').hidden = true;
-        document.getElementById('picosTableContainer').hidden = true;
-        const e = document.getElementById('estabTableContainer');
-        if (e) e.hidden = true;
+        document.getElementById('faixasTableContainer').hidden = true;
         document.getElementById('statsRow').hidden = true;
         document.getElementById('reportHeader').hidden = true;
-        document.getElementById('fileInfo').textContent = 'Nenhum arquivo selecionado';
+
+        const fileInfo = document.getElementById('fileInfo');
+        fileInfo.textContent = 'Nenhum arquivo selecionado';
+        delete fileInfo.dataset.filename;
+
         document.getElementById('errorMsg').hidden = true;
         document.getElementById('csvFile').value = '';
 
@@ -1415,8 +1438,8 @@ const App = {
         State.rawTimes = [];
         State.rawPressures = [];
         State.currentChartData = null;
-        State.currentPeaks = [];
-        State.currentStablePoints = [];
+        State.faixasResultado = [];
+        State.amostragemSegundos = 1;
     },
 
     imprimir() {
@@ -1431,8 +1454,16 @@ const App = {
             return;
         }
         Relatorio.atualizarCabecalho();
-        CanvasChart.recriar();
-        setTimeout(() => window.print(), 200);
+
+        // Redesenha em alta resolução para impressão
+        CanvasChart.renderParaImpressao(ref);
+
+        // Aguarda render + abre diálogo
+        setTimeout(() => {
+            window.print();
+            // Após imprimir, volta ao tamanho normal de tela
+            setTimeout(() => CanvasChart.recriar(), 500);
+        }, 300);
     },
 
     _setupResize() {
@@ -1451,25 +1482,22 @@ const App = {
 document.addEventListener('DOMContentLoaded', () => App.init());
 
 /* ----------------------------------------------------------------
- * PWA — Registra o Service Worker para funcionamento offline
+ * PWA — Service Worker
  * ---------------------------------------------------------------- */
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker
             .register('./service-worker.js')
             .then((reg) => {
-                console.log('[PWA] Service Worker registrado:', reg.scope);
+                if (State.debug) console.log('[PWA] Service Worker registrado:', reg.scope);
 
-                // Verifica se há atualização disponível
                 reg.addEventListener('updatefound', () => {
                     const newWorker = reg.installing;
                     if (!newWorker) return;
 
                     newWorker.addEventListener('statechange', () => {
                         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            // Há uma nova versão em cache — avisa o usuário
-                            const msg = 'Nova versão disponível. Recarregar agora?';
-                            if (confirm(msg)) {
+                            if (confirm('Nova versão disponível. Recarregar agora?')) {
                                 newWorker.postMessage('SKIP_WAITING');
                                 window.location.reload();
                             }

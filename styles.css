@@ -655,13 +655,21 @@ body {
     border-radius: var(--radius-lg);
     border: 1px solid var(--color-border);
     overflow-x: auto;
+    min-height: 700px;
 }
 
 .chart-container canvas {
     display: block;
     width: 100%;
-    height: auto;
-    max-height: 450px;
+    max-width: 100%;
+    /* A altura é controlada via JS (_fitCanvas) */
+    /* Não definimos height nem max-height aqui para não conflitar */
+    border-radius: 4px;
+}
+
+/* Garante altura mínima confortável do container */
+.chart-container {
+    min-height: 700px;
 }
 
 .chart-tooltip {
@@ -1098,14 +1106,15 @@ body {
 
 @media print {
     @page {
-        size: A4;
-        margin: 1.2cm;
+        size: A4 portrait;
+        margin: 8mm 8mm 8mm 8mm;
     }
 
     html, body {
         background-color: #ffffff;
         padding: 0;
         margin: 0;
+        font-size: 10px;
     }
 
     .container {
@@ -1129,157 +1138,269 @@ body {
         display: none !important;
     }
 
-    /* ---------- Mostra apenas o relatório ---------- */
+    /* ============================================================
+     * CABEÇALHO DO RELATÓRIO — COMPACTO
+     * ============================================================ */
     .report-header {
         display: block !important;
-        margin-bottom: 15px;
-        padding: 12px;
+        margin: 0 0 5mm 0;
+        padding: 3mm 4mm;
         break-inside: avoid;
         page-break-inside: avoid;
         border: 1px solid #cccccc;
+        border-radius: 0;
     }
 
+    /* Título print-only */
     .print-only-title {
         display: block !important;
-        margin-bottom: 10px;
-        padding-bottom: 8px;
-        border-bottom: 2px solid var(--color-primary);
+        margin: 0 0 2mm 0;
+        padding-bottom: 1.5mm;
+        border-bottom: 1.5px solid var(--color-primary);
     }
 
+    .print-only-title .print-title {
+        font-size: 13pt;
+        font-weight: bold;
+        color: var(--color-primary);
+        margin: 0;
+        padding: 0;
+        line-height: 1.1;
+    }
+
+    .print-only-title .subtitle {
+        font-size: 8pt;
+        color: #666;
+        margin: 0.5mm 0 0 0;
+        line-height: 1.1;
+    }
+
+    /* Logo menor */
     .report-logo {
         position: absolute;
-        top: 12px;
-        right: 12px;
-        width: 55px;
-        height: 40px;
+        top: 3mm;
+        right: 3mm;
+        width: 30mm;
+        height: 18mm;
     }
 
+    .report-logo img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+
+    /* Título "RELATÓRIO DE ANÁLISE" */
     .report-header h3 {
-        font-size: 12pt;
-        margin-bottom: 10px;
-        padding-right: 65px;
+        font-size: 10pt;
+        margin: 0 0 2mm 0;
+        padding-right: 35mm;
+        line-height: 1.1;
     }
 
+    /* Grid de informações */
     .report-info {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-        padding-right: 65px;
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1.5mm 3mm;
+        padding-right: 0;
     }
 
-    .report-item { padding: 6px 8px; }
-    .report-item .label { font-size: 7pt; }
-    .report-item .value { font-size: 9pt; }
-    .report-item.full-width { grid-column: 1 / -1; }
+    .report-item {
+        padding: 1.5mm 2mm;
+        border: 1px solid #e0e0e0;
+        border-radius: 0;
+    }
 
+    .report-item .label {
+        font-size: 6pt;
+        color: #888;
+        text-transform: uppercase;
+        margin: 0;
+        line-height: 1;
+    }
+
+    .report-item .value {
+        font-size: 8pt;
+        color: #222;
+        font-weight: bold;
+        margin-top: 0.8mm;
+        line-height: 1.1;
+        word-break: break-word;
+    }
+
+    .report-item.full-width {
+        grid-column: 1 / -1;
+    }
+
+    /* Equipe responsável — compacta */
     .responsaveis-report {
-        margin-top: 12px;
-        padding-top: 8px;
+        margin-top: 2mm;
+        padding-top: 1.5mm;
+        border-top: 1px solid #ddd;
         break-inside: avoid;
     }
 
     .responsaveis-report h4 {
-        font-size: 9pt;
-        margin-bottom: 8px;
+        font-size: 8pt;
+        margin: 0 0 1.5mm 0;
+        color: var(--color-primary);
     }
 
     .responsaveis-report-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 8px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.5mm 3mm;
     }
 
-    .responsavel-report-card { padding: 5px 8px; }
-    .responsavel-report-card .nome { font-size: 9pt; }
-    .responsavel-report-card .cargo,
-    .responsavel-report-card .registro { font-size: 7pt; }
+    .responsavel-report-card {
+        padding: 1mm 2mm;
+        border: 1px solid #e8e8e8;
+    }
 
-    /* ---------- Gráfico ---------- */
+    .responsavel-report-card .nome {
+        font-size: 8pt;
+        font-weight: bold;
+        color: #222;
+        line-height: 1.1;
+    }
+
+    .responsavel-report-card .cargo,
+    .responsavel-report-card .registro {
+        font-size: 6.5pt;
+        color: #666;
+        line-height: 1.1;
+    }
+
+    /* ============================================================
+     * GRÁFICO — AJUSTADO PARA CABER COM CABEÇALHO
+     * ============================================================ */
     .chart-container {
         display: block !important;
-        margin: 15px 0;
-        padding: 10px;
+        margin: 3mm 0;
+        padding: 2mm;
         break-inside: avoid;
         page-break-inside: avoid;
         border: 1px solid #cccccc;
-        overflow: visible;
+        min-height: auto;
     }
 
     .chart-container canvas {
         display: block !important;
         width: 100% !important;
         height: auto !important;
-        max-height: 300px;
+        max-height: 130mm !important;
+        page-break-inside: avoid;
     }
 
+    /* Legenda compacta */
     .chart-legend {
         display: flex !important;
-        padding: 5px 10px;
-        font-size: 8pt;
-        margin-top: 5px;
-        border: 1px solid #eeeeee;
+        padding: 1.5mm 2mm;
+        font-size: 6.5pt;
+        margin-top: 1mm;
+        border: 1px solid #eee;
+        gap: 3mm;
+        flex-wrap: wrap;
     }
 
-    .legend-peaks { gap: 8px; font-size: 9pt; }
-    .legend-dot { width: 10px; height: 10px; }
+    .legend-period {
+        font-size: 7pt;
+    }
 
-    /* ---------- Estatísticas ---------- */
+    .legend-peaks {
+        gap: 4px;
+        font-size: 6.5pt;
+    }
+
+    .legend-peak-item {
+        font-size: 6.5pt;
+        gap: 2px;
+    }
+
+    .legend-dot {
+        width: 8px;
+        height: 8px;
+    }
+
+    /* ============================================================
+     * ESTATÍSTICAS — COMPACTAS
+     * ============================================================ */
     .stats-row {
         display: flex !important;
-        margin: 15px 0;
-        padding: 10px;
+        margin: 2mm 0;
+        padding: 1.5mm 2mm;
         break-inside: avoid;
         page-break-inside: avoid;
         border: 1px solid #cccccc;
+        gap: 3mm;
     }
 
-    .stat-box { min-width: 60px; }
-    .stat-value { font-size: 11pt; }
-    .stat-label { font-size: 8pt; }
+    .stat-box {
+        min-width: 40px;
+    }
 
-    /* ---------- Resumo de picos ---------- */
+    .stat-value {
+        font-size: 10pt;
+        line-height: 1.1;
+    }
+
+    .stat-label {
+        font-size: 6pt;
+        line-height: 1.1;
+    }
+
+    /* ============================================================
+     * TABELA DE FAIXAS — COMPACTA
+     * ============================================================ */
     .picos-table {
         display: block !important;
-        margin: 15px 0;
+        margin: 2mm 0;
         break-inside: avoid;
         page-break-inside: avoid;
     }
 
     .picos-table h4 {
-        font-size: 10pt;
-        margin-bottom: 8px;
+        font-size: 9pt;
+        margin: 0 0 1.5mm 0;
+        line-height: 1.1;
     }
 
     .picos-table h4 .badge {
-        font-size: 8pt;
-        padding: 2px 8px;
+        font-size: 7pt;
+        padding: 1px 6px;
     }
 
-    .picos-destaque {
-        padding: 8px 12px;
-        gap: 16px;
-        margin-bottom: 8px;
+    .picos-subtitulo {
+        font-size: 6.5pt;
+        margin: 0 0 1.5mm 0;
+        line-height: 1.2;
     }
 
-    .picos-destaque-valor { font-size: 13pt; }
-    .picos-destaque-label { font-size: 7pt; }
-    .picos-subtitulo { font-size: 8pt; margin-bottom: 6px; }
-
-    .picos-resumo {
-        font-size: 8pt;
+    .faixas-resumo {
+        font-size: 7pt;
         border: 1px solid #cccccc;
     }
 
-    .picos-resumo th,
-    .picos-resumo td {
-        padding: 4px 8px;
+    .faixas-resumo th,
+    .faixas-resumo td {
+        padding: 1mm 1.5mm;
         font-size: 7pt;
+        line-height: 1.1;
     }
 
-    .status-badge {
-        min-width: 55px;
-        font-size: 6pt;
-        padding: 1px 4px;
+    .faixas-resumo th {
+        background-color: #f0f0f0;
     }
 
+    .faixa-dot {
+        width: 8px;
+        height: 8px;
+        margin-right: 4px;
+        border-width: 1px;
+    }
+
+    /* -------------------- Quebras -------------------- */
     .page-break-before { page-break-before: always; }
     .page-break-after { page-break-after: always; }
     .avoid-break { break-inside: avoid; page-break-inside: avoid; }
@@ -1367,4 +1488,55 @@ body {
         font-size: 9px;
         padding: 2px 6px;
     }
+}
+
+/* ================================================================
+ * 19. TABELA DE FAIXAS (NOVA MÉTRICA)
+ * ================================================================ */
+.faixas-resumo {
+    width: 100%;
+    min-width: 650px;
+    border-collapse: collapse;
+    background-color: var(--color-bg-card);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border);
+}
+
+.faixas-resumo th,
+.faixas-resumo td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.faixas-resumo th {
+    background-color: var(--color-bg-fieldset);
+    color: var(--color-primary);
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.faixas-resumo td {
+    color: var(--color-text);
+    font-size: 13px;
+}
+
+.faixas-resumo .col-center {
+    text-align: center;
+}
+
+.faixa-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+    border: 2px solid;
+}
+
+/* Ajuste no container (reuso do picos-table) */
+#faixasTableContainer {
+    margin-top: 20px;
+    overflow-x: auto;
 }

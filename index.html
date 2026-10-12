@@ -85,7 +85,7 @@
                 <div class="form-grid">
                     <div class="form-group">
                         <label for="equipamento">Equipamento / Cliente</label>
-                        <input type="text" id="equipamento" placeholder="Ex: Bomba Hidráulica">
+                        <input type="text" id="equipamento" placeholder="Ex: ERP001">
                     </div>
                     <div class="form-group">
                         <label for="endereco">Endereço</label>
@@ -154,7 +154,6 @@
                 <!-- Título exclusivo da impressão -->
                 <div class="print-only-title">
                     <div class="print-title">Data Logger - Análise de Pressão</div>
-                    <p class="subtitle">Registro de manutenção / atendimento | Monitoramento de Picos e Estabilidades</p>
                 </div>
 
                 <h3>RELATÓRIO DE ANÁLISE DE PRESSÃO</h3>
@@ -183,6 +182,11 @@
                     <div class="report-item">
                         <div class="label">Data/Hora</div>
                         <div class="value" id="reportDataHora">—</div>
+                    </div>
+
+                    <div class="report-item">
+                        <div class="label">Amostragem</div>
+                        <div class="value" id="reportAmostragem">—</div>
                     </div>
                     <div class="report-item full-width" id="obsReportItem" hidden>
                         <div class="label">Observações</div>
@@ -214,7 +218,7 @@
 
             <!-- GRÁFICO -->
             <div class="chart-container" id="chartContainer" hidden>
-                <canvas id="pressureChart" width="1200" height="450"></canvas>
+                <canvas id="pressureChart"></canvas>
             </div>
 
             <!-- LEGENDA -->
@@ -259,13 +263,18 @@
             <!-- ESTATÍSTICAS -->
             <div class="stats-row" id="statsRow" hidden></div>
 
-            <!-- TABELA DE PICOS -->
-            <div class="picos-table" id="picosTableContainer" hidden>
+
+            <!-- TABELA DE FAIXAS ATINGIDAS -->
+            <div class="picos-table" id="faixasTableContainer" hidden>
                 <h4>
-                    📊 Resumo de Picos por Faixa
-                    <span class="badge" id="picosCountBadge">0 picos</span>
+                    📊 Faixas de Pressão Atingidas
+                    <span class="badge" id="faixasCountBadge">0 faixas</span>
                 </h4>
-                <div id="picosTable"></div>
+                <p class="picos-subtitulo">
+                    Cada faixa representa um percentual da pressão de trabalho (100%).
+                    A faixa é considerada atingida quando a curva a cruza.
+                </p>
+                <div id="faixasTable"></div>
             </div>
 
         </main>
